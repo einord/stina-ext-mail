@@ -1,0 +1,420 @@
+{
+  "$schema": "https://stina.app/schemas/extension-manifest.json",
+  "id": "mail-reader",
+  "name": "Mail Reader",
+  "version": "0.1.0",
+  "description": "Read incoming emails from iCloud, Gmail, Outlook, or generic IMAP accounts.",
+  "type": "tools",
+  "author": {
+    "name": "Stina Team",
+    "url": "https://github.com/einord"
+  },
+  "repository": "https://github.com/einord/stina-ext-mail",
+  "license": "MIT",
+  "engines": {
+    "stina": ">=0.7.1"
+  },
+  "platforms": ["web", "electron", "tui"],
+  "main": "index.js",
+
+  "permissions": [
+    "tools.register",
+    "actions.register",
+    "events.emit",
+    "database.own",
+    "scheduler.register",
+    "chat.message.write",
+    "network:imap.mail.me.com:993",
+    "network:imap.gmail.com:993",
+    "network:outlook.office365.com:993",
+    "network:*:993",
+    "network:*:143",
+    "network:oauth2.googleapis.com:443",
+    "network:login.microsoftonline.com:443"
+  ],
+
+  "contributes": {
+    "settings": [
+      {
+        "id": "gmail_client_id",
+        "title": "Gmail Client ID",
+        "description": "OAuth2 Client ID from Google Cloud Console for Gmail access",
+        "type": "string"
+      },
+      {
+        "id": "gmail_client_secret",
+        "title": "Gmail Client Secret",
+        "description": "OAuth2 Client Secret from Google Cloud Console for Gmail access",
+        "type": "string"
+      },
+      {
+        "id": "outlook_client_id",
+        "title": "Outlook Client ID",
+        "description": "OAuth2 Client ID from Azure AD for Outlook access",
+        "type": "string"
+      },
+      {
+        "id": "outlook_tenant_id",
+        "title": "Outlook Tenant ID",
+        "description": "Azure AD Tenant ID (use 'common' for multi-tenant)",
+        "type": "string",
+        "default": "common"
+      }
+    ],
+    "toolSettings": [
+      {
+        "id": "accounts",
+        "title": "Email Accounts",
+        "description": "Configure email accounts to monitor for incoming mail.",
+        "view": {
+          "kind": "component",
+          "data": {
+            "accounts": {
+              "action": "getAccounts",
+              "refreshOn": ["mail.account.changed"]
+            },
+            "editState": {
+              "action": "getEditState",
+              "refreshOn": ["mail.edit.changed"]
+            }
+          },
+          "content": {
+            "component": "VerticalStack",
+            "gap": 1,
+            "children": [
+              {
+                "component": "VerticalStack",
+                "gap": 0.5,
+                "children": {
+                  "each": "$accounts",
+                  "as": "account",
+                  "items": [
+                    {
+                      "component": "HorizontalStack",
+                      "gap": 0.5,
+                      "style": { "align-items": "center", "justify-content": "space-between" },
+                      "children": [
+                        {
+                          "component": "VerticalStack",
+                          "gap": 0.25,
+                          "children": [
+                            {
+                              "component": "Label",
+                              "text": "$account.name"
+                            },
+                            {
+                              "component": "Label",
+                              "text": "$account.email",
+                              "style": { "font-size": "0.85em", "opacity": "0.7" }
+                            }
+                          ]
+                        },
+                        {
+                          "component": "HorizontalStack",
+                          "gap": 0.25,
+                          "children": [
+                            {
+                              "component": "Pill",
+                              "text": "$account.providerLabel",
+                              "variant": "$account.statusVariant"
+                            },
+                            {
+                              "component": "IconButton",
+                              "icon": "edit-02",
+                              "tooltip": "Edit account",
+                              "onClickAction": {
+                                "action": "editAccount",
+                                "params": { "id": "$account.id" }
+                              }
+                            },
+                            {
+                              "component": "IconButton",
+                              "icon": "delete-02",
+                              "tooltip": "Delete account",
+                              "type": "danger",
+                              "onClickAction": {
+                                "action": "deleteAccount",
+                                "params": { "id": "$account.id" }
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              },
+              {
+                "component": "Button",
+                "text": "Add Account",
+                "onClickAction": "showAddForm"
+              },
+              {
+                "component": "Modal",
+                "title": "$editState.modalTitle",
+                "open": "$editState.showModal",
+                "onCloseAction": "closeModal",
+                "body": {
+                  "component": "VerticalStack",
+                  "gap": 1,
+                  "children": [
+                    {
+                      "component": "TextInput",
+                      "label": "Display Name",
+                      "placeholder": "Work Email",
+                      "value": "$editState.form.name",
+                      "onChangeAction": {
+                        "action": "updateFormField",
+                        "params": { "field": "name", "value": "$value" }
+                      }
+                    },
+                    {
+                      "component": "Select",
+                      "label": "Provider",
+                      "options": [
+                        { "label": "iCloud", "value": "icloud" },
+                        { "label": "Gmail", "value": "gmail" },
+                        { "label": "Outlook", "value": "outlook" },
+                        { "label": "Generic IMAP", "value": "imap" }
+                      ],
+                      "selectedValue": "$editState.form.provider",
+                      "onChangeAction": {
+                        "action": "updateFormField",
+                        "params": { "field": "provider", "value": "$value" }
+                      }
+                    },
+                    {
+                      "component": "TextInput",
+                      "label": "Email Address",
+                      "placeholder": "you@example.com",
+                      "value": "$editState.form.email",
+                      "onChangeAction": {
+                        "action": "updateFormField",
+                        "params": { "field": "email", "value": "$value" }
+                      }
+                    },
+                    {
+                      "component": "ConditionalGroup",
+                      "condition": "$editState.form.provider == 'icloud'",
+                      "children": [
+                        {
+                          "component": "TextInput",
+                          "label": "App-Specific Password",
+                          "placeholder": "xxxx-xxxx-xxxx-xxxx",
+                          "value": "$editState.form.password",
+                          "onChangeAction": {
+                            "action": "updateFormField",
+                            "params": { "field": "password", "value": "$value" }
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "component": "ConditionalGroup",
+                      "condition": "$editState.form.provider == 'gmail' || $editState.form.provider == 'outlook'",
+                      "children": [
+                        {
+                          "component": "ConditionalGroup",
+                          "condition": "$editState.oauthStatus == 'pending'",
+                          "children": [
+                            {
+                              "component": "Button",
+                              "text": "Connect with OAuth",
+                              "onClickAction": "startOAuth"
+                            }
+                          ]
+                        },
+                        {
+                          "component": "ConditionalGroup",
+                          "condition": "$editState.oauthStatus == 'awaiting'",
+                          "children": [
+                            {
+                              "component": "VerticalStack",
+                              "gap": 0.5,
+                              "children": [
+                                {
+                                  "component": "Label",
+                                  "text": "Go to the URL below and enter the code:"
+                                },
+                                {
+                                  "component": "Label",
+                                  "text": "$editState.oauthUrl",
+                                  "style": { "font-family": "monospace", "word-break": "break-all" }
+                                },
+                                {
+                                  "component": "Label",
+                                  "text": "$editState.oauthCode",
+                                  "style": { "font-size": "1.5em", "font-weight": "bold", "text-align": "center" }
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "component": "ConditionalGroup",
+                          "condition": "$editState.oauthStatus == 'connected'",
+                          "children": [
+                            {
+                              "component": "Pill",
+                              "text": "Connected",
+                              "variant": "success"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "component": "ConditionalGroup",
+                      "condition": "$editState.form.provider == 'imap'",
+                      "children": [
+                        {
+                          "component": "TextInput",
+                          "label": "IMAP Server",
+                          "placeholder": "imap.example.com",
+                          "value": "$editState.form.imapHost",
+                          "onChangeAction": {
+                            "action": "updateFormField",
+                            "params": { "field": "imapHost", "value": "$value" }
+                          }
+                        },
+                        {
+                          "component": "TextInput",
+                          "label": "Port",
+                          "placeholder": "993",
+                          "value": "$editState.form.imapPort",
+                          "onChangeAction": {
+                            "action": "updateFormField",
+                            "params": { "field": "imapPort", "value": "$value" }
+                          }
+                        },
+                        {
+                          "component": "TextInput",
+                          "label": "Username",
+                          "placeholder": "username",
+                          "value": "$editState.form.username",
+                          "onChangeAction": {
+                            "action": "updateFormField",
+                            "params": { "field": "username", "value": "$value" }
+                          }
+                        },
+                        {
+                          "component": "TextInput",
+                          "label": "Password",
+                          "placeholder": "password",
+                          "value": "$editState.form.password",
+                          "onChangeAction": {
+                            "action": "updateFormField",
+                            "params": { "field": "password", "value": "$value" }
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "footer": {
+                  "component": "HorizontalStack",
+                  "gap": 0.5,
+                  "style": { "justify-content": "flex-end" },
+                  "children": [
+                    {
+                      "component": "Button",
+                      "text": "Test Connection",
+                      "onClickAction": "testConnection"
+                    },
+                    {
+                      "component": "Button",
+                      "text": "Save",
+                      "onClickAction": "saveAccount"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "mail-settings",
+        "title": "Mail Settings",
+        "description": "Global settings for incoming mail handling.",
+        "view": {
+          "kind": "component",
+          "data": {
+            "settings": {
+              "action": "getSettings",
+              "refreshOn": ["mail.settings.changed"]
+            }
+          },
+          "content": {
+            "component": "VerticalStack",
+            "gap": 1,
+            "children": [
+              {
+                "component": "TextInput",
+                "label": "Global Instruction",
+                "placeholder": "Summarize all incoming emails briefly",
+                "value": "$settings.instruction",
+                "onChangeAction": {
+                  "action": "updateSetting",
+                  "params": { "key": "instruction", "value": "$value" }
+                }
+              },
+              {
+                "component": "Label",
+                "text": "This instruction will be appended to every incoming email notification sent to Stina.",
+                "style": { "font-size": "0.85em", "opacity": "0.7" }
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "tools": [
+      {
+        "id": "mail_accounts_list",
+        "name": "List Mail Accounts",
+        "description": "List configured email accounts."
+      },
+      {
+        "id": "mail_accounts_add",
+        "name": "Add Mail Account",
+        "description": "Add a new email account for monitoring."
+      },
+      {
+        "id": "mail_accounts_update",
+        "name": "Update Mail Account",
+        "description": "Update an existing email account configuration."
+      },
+      {
+        "id": "mail_accounts_delete",
+        "name": "Delete Mail Account",
+        "description": "Delete an email account."
+      },
+      {
+        "id": "mail_accounts_test",
+        "name": "Test Mail Account",
+        "description": "Test connection to an email account."
+      },
+      {
+        "id": "mail_list_recent",
+        "name": "List Recent Emails",
+        "description": "List recent emails from configured accounts."
+      },
+      {
+        "id": "mail_get",
+        "name": "Get Email",
+        "description": "Get a specific email by ID."
+      }
+    ],
+    "prompts": [
+      {
+        "id": "mail-reader-instructions",
+        "section": "tools",
+        "i18n": {
+          "en": "You have access to Mail Reader tools for monitoring incoming emails. Use mail_accounts_list to see configured accounts. Use mail_list_recent to get recent emails from accounts. Use mail_get to read a specific email. When an email notification arrives from the system, follow the global instruction to respond appropriately about the email content.",
+          "sv": "Du har tillgång till Mail Reader-verktyg för att övervaka inkommande e-post. Använd mail_accounts_list för att se konfigurerade konton. Använd mail_list_recent för att hämta senaste e-post från konton. Använd mail_get för att läsa ett specifikt e-postmeddelande. När ett e-postmeddelande kommer från systemet, följ den globala instruktionen för att svara lämpligt om e-postinnehållet."
+        }
+      }
+    ]
+  }
+}
