@@ -25,8 +25,8 @@ importers:
         specifier: ^9.39.2
         version: 9.39.2
       '@stina/extension-api':
-        specifier: file:../stina/packages/extension-api
-        version: file:../stina/packages/extension-api
+        specifier: ^0.20.0
+        version: 0.20.0
       '@types/archiver':
         specifier: ^7.0.0
         version: 7.0.0
@@ -425,8 +425,8 @@ packages:
   '@selderee/plugin-htmlparser2@0.11.0':
     resolution: {integrity: sha512-P33hHGdldxGabLFjPPpaTxVolMrzrcegejx+0GxjrIb9Zv48D8yAIA/QTDR2dFl7Uz7urX8aX6+5bCZslr+gWQ==}
 
-  '@stina/extension-api@file:../stina/packages/extension-api':
-    resolution: {directory: ../stina/packages/extension-api, type: directory}
+  '@stina/extension-api@0.20.0':
+    resolution: {integrity: sha512-3M4afSLtMvO2ZoZjOJxemHoPNUBrGm1tyoF74CcrxyIJXJ5P/12mYSaDEXpAfyzC5XWfX9UcnQlZvV2GT1/ZSA==}
 
   '@types/archiver@7.0.0':
     resolution: {integrity: sha512-/3vwGwx9n+mCQdYZ2IKGGHEFL30I96UgBlk8EtRDDFQ9uxM1l4O5Ci6r00EMAkiDaTqD9DQ6nVrWRICnBPtzzg==}
@@ -1722,7 +1722,7 @@ snapshots:
       domhandler: 5.0.3
       selderee: 0.11.0
 
-  '@stina/extension-api@file:../stina/packages/extension-api': {}
+  '@stina/extension-api@0.20.0': {}
 
   '@types/archiver@7.0.0':
     dependencies:
