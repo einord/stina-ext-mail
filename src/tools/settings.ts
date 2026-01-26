@@ -13,6 +13,8 @@ import type { MailSettingsUpdate } from '../types.js'
 export function createGetSettingsTool(repository: MailRepository) {
   return {
     id: 'mail_settings_get',
+    name: 'Get Mail Settings',
+    description: 'Gets the current mail settings including the global instruction',
     async execute(
       _params: Record<string, unknown>,
       context: { userId?: string }
@@ -53,17 +55,21 @@ export function createUpdateSettingsTool(
 ) {
   return {
     id: 'mail_settings_update',
+    name: 'Update Mail Settings',
+    description: 'Updates the mail settings such as the global instruction for handling emails',
     async execute(
-      params: MailSettingsUpdate,
+      params: Record<string, unknown>,
       context: { userId?: string }
     ) {
       if (!context.userId) {
         return { success: false, error: 'User context required' }
       }
 
+      const input = params as MailSettingsUpdate
+
       try {
         const userRepo = repository.withUser(context.userId)
-        const settings = await userRepo.settings.update(params)
+        const settings = await userRepo.settings.update(input)
 
         if (onUpdate) {
           onUpdate(context.userId)

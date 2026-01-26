@@ -118,10 +118,15 @@ export class ImapClient {
         const searchCriteria = sinceUid > 0 ? { uid: `${sinceUid + 1}:*` } : { all: true }
 
         // Search for messages
-        const uids = await this.client.search(searchCriteria, { uid: true })
+        const uidsResult = await this.client.search(searchCriteria, { uid: true })
+
+        // Handle case when search returns false (no messages)
+        if (!uidsResult || !Array.isArray(uidsResult)) {
+          return emails
+        }
 
         // Limit results
-        const uidsToFetch = uids.slice(-limit)
+        const uidsToFetch = uidsResult.slice(-limit)
 
         if (uidsToFetch.length === 0) {
           return emails
@@ -134,6 +139,9 @@ export class ImapClient {
           source: true,
         })) {
           try {
+            if (!message.source) {
+              continue
+            }
             const parsed = await parseEmail(message.source)
 
             const email: EmailMessage = {

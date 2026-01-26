@@ -14,19 +14,23 @@ import type { MailProvider, MailAccountInput } from '../types.js'
 export function createListAccountsTool(repository: MailRepository) {
   return {
     id: 'mail_accounts_list',
+    name: 'List Mail Accounts',
+    description: 'Lists all configured mail accounts for the current user',
     async execute(
-      params: { limit?: number; offset?: number },
+      params: Record<string, unknown>,
       context: { userId?: string }
     ) {
       if (!context.userId) {
         return { success: false, error: 'User context required' }
       }
 
+      const { limit, offset } = params as { limit?: number; offset?: number }
+
       try {
         const userRepo = repository.withUser(context.userId)
         const accounts = await userRepo.accounts.list({
-          limit: params.limit,
-          offset: params.offset,
+          limit,
+          offset,
         })
 
         // Remove sensitive credential data from response
@@ -71,23 +75,27 @@ export function createAddAccountTool(
 ) {
   return {
     id: 'mail_accounts_add',
+    name: 'Add Mail Account',
+    description: 'Adds a new mail account with the specified provider and credentials',
     async execute(
-      params: MailAccountInput,
+      params: Record<string, unknown>,
       context: { userId?: string }
     ) {
       if (!context.userId) {
         return { success: false, error: 'User context required' }
       }
 
+      const input = params as unknown as MailAccountInput
+
       try {
         // Validate provider
-        const provider = providers.get(params.provider)
+        const provider = providers.get(input.provider)
         if (!provider) {
-          return { success: false, error: `Unknown provider: ${params.provider}` }
+          return { success: false, error: `Unknown provider: ${input.provider}` }
         }
 
         const userRepo = repository.withUser(context.userId)
-        const account = await userRepo.accounts.upsert(undefined, params)
+        const account = await userRepo.accounts.upsert(undefined, input)
 
         return {
           success: true,
@@ -116,17 +124,42 @@ export function createAddAccountTool(
 export function createUpdateAccountTool(repository: MailRepository) {
   return {
     id: 'mail_accounts_update',
+    name: 'Update Mail Account',
+    description: 'Updates an existing mail account configuration',
     async execute(
-      params: { id: string } & Partial<MailAccountInput>,
+      params: Record<string, unknown>,
       context: { userId?: string }
     ) {
       if (!context.userId) {
         return { success: false, error: 'User context required' }
       }
 
+      const input = params as unknown as { id: string } & Partial<MailAccountInput>
+
       try {
         const userRepo = repository.withUser(context.userId)
-        const account = await userRepo.accounts.upsert(params.id, params)
+
+        // Get existing account to merge with partial update
+        const existing = await userRepo.accounts.get(input.id)
+        if (!existing) {
+          return { success: false, error: 'Account not found' }
+        }
+
+        // Merge existing data with updates
+        const updateData: MailAccountInput = {
+          provider: input.provider ?? existing.provider,
+          name: input.name ?? existing.name,
+          email: input.email ?? existing.email,
+          imapHost: input.imapHost ?? existing.imapHost ?? undefined,
+          imapPort: input.imapPort ?? existing.imapPort ?? undefined,
+          username: input.username,
+          password: input.password,
+          accessToken: input.accessToken,
+          refreshToken: input.refreshToken,
+          expiresAt: input.expiresAt,
+        }
+
+        const account = await userRepo.accounts.upsert(input.id, updateData)
 
         return {
           success: true,
@@ -159,24 +192,28 @@ export function createDeleteAccountTool(
 ) {
   return {
     id: 'mail_accounts_delete',
+    name: 'Delete Mail Account',
+    description: 'Deletes a mail account and stops any active connections',
     async execute(
-      params: { id: string },
+      params: Record<string, unknown>,
       context: { userId?: string }
     ) {
       if (!context.userId) {
         return { success: false, error: 'User context required' }
       }
 
+      const { id } = params as { id: string }
+
       try {
         const userRepo = repository.withUser(context.userId)
-        const deleted = await userRepo.accounts.delete(params.id)
+        const deleted = await userRepo.accounts.delete(id)
 
         if (!deleted) {
           return { success: false, error: 'Account not found' }
         }
 
         if (onDelete) {
-          onDelete(params.id, context.userId)
+          onDelete(id, context.userId)
         }
 
         return { success: true, data: { deleted: true } }
@@ -202,17 +239,21 @@ export function createTestAccountTool(
 ) {
   return {
     id: 'mail_accounts_test',
+    name: 'Test Mail Account',
+    description: 'Tests the connection to a mail account',
     async execute(
-      params: { id: string },
+      params: Record<string, unknown>,
       context: { userId?: string }
     ) {
       if (!context.userId) {
         return { success: false, error: 'User context required' }
       }
 
+      const { id } = params as { id: string }
+
       try {
         const userRepo = repository.withUser(context.userId)
-        const account = await userRepo.accounts.get(params.id)
+        const account = await userRepo.accounts.get(id)
 
         if (!account) {
           return { success: false, error: 'Account not found' }
@@ -223,7 +264,7 @@ export function createTestAccountTool(
 
         // Update sync status
         await userRepo.accounts.updateSyncStatus(
-          params.id,
+          id,
           connected ? null : 'Connection test failed'
         )
 

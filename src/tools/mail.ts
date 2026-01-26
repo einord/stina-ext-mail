@@ -17,22 +17,26 @@ export function createListRecentTool(
 ) {
   return {
     id: 'mail_list_recent',
+    name: 'List Recent Emails',
+    description: 'Lists recent emails from all or a specific mail account',
     async execute(
-      params: { accountId?: string; limit?: number },
+      params: Record<string, unknown>,
       context: { userId?: string }
     ) {
       if (!context.userId) {
         return { success: false, error: 'User context required' }
       }
 
+      const { accountId, limit: limitParam } = params as { accountId?: string; limit?: number }
+
       try {
         const userRepo = repository.withUser(context.userId)
-        const limit = params.limit ?? 10
+        const limit = limitParam ?? 10
 
         // Get accounts to fetch from
         let accounts
-        if (params.accountId) {
-          const account = await userRepo.accounts.get(params.accountId)
+        if (accountId) {
+          const account = await userRepo.accounts.get(accountId)
           accounts = account ? [account] : []
         } else {
           accounts = await userRepo.accounts.list()
@@ -45,8 +49,21 @@ export function createListRecentTool(
           }
         }
 
+        // Helper to format email address
+        const formatAddress = (addr: { name?: string; address: string }): string =>
+          addr.name ? `${addr.name} <${addr.address}>` : addr.address
+
         // Fetch emails from each account
-        const allEmails = []
+        const allEmails: Array<{
+          id: string
+          accountId: string
+          accountName: string
+          accountEmail: string
+          from: string
+          subject: string
+          date: string
+          snippet?: string
+        }> = []
 
         for (const account of accounts) {
           if (!account.enabled) continue
@@ -59,9 +76,14 @@ export function createListRecentTool(
             // Add account info to each email
             for (const email of emails) {
               allEmails.push({
-                ...email,
+                id: email.id,
+                accountId: email.accountId,
                 accountName: account.name,
                 accountEmail: account.email,
+                from: formatAddress(email.from),
+                subject: email.subject,
+                date: email.date,
+                snippet: email.snippet,
               })
             }
 
@@ -121,17 +143,21 @@ export function createGetMailTool(
 ) {
   return {
     id: 'mail_get',
+    name: 'Get Email',
+    description: 'Gets the full content of a specific email by its ID',
     async execute(
-      params: { id: string },
+      params: Record<string, unknown>,
       context: { userId?: string }
     ) {
       if (!context.userId) {
         return { success: false, error: 'User context required' }
       }
 
+      const { id } = params as { id: string }
+
       try {
         // Parse the email ID (format: accountId:uid)
-        const [accountId, uidStr] = params.id.split(':')
+        const [accountId, uidStr] = id.split(':')
         if (!accountId || !uidStr) {
           return { success: false, error: 'Invalid email ID format' }
         }

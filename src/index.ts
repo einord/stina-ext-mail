@@ -46,7 +46,7 @@ type ActionsApi = {
 }
 
 type SettingsApi = {
-  get: (key: string) => Promise<string | undefined>
+  get: <T = string>(key: string) => Promise<T | undefined>
 }
 
 type ChatAPI = {
@@ -140,10 +140,10 @@ function activate(context: ExtensionContext): Disposable {
 
     const config: ProviderConfig = {}
 
-    const gmailClientId = await settingsApi.get('gmail_client_id')
-    const gmailClientSecret = await settingsApi.get('gmail_client_secret')
-    const outlookClientId = await settingsApi.get('outlook_client_id')
-    const outlookTenantId = await settingsApi.get('outlook_tenant_id')
+    const gmailClientId = await settingsApi.get<string>('gmail_client_id')
+    const gmailClientSecret = await settingsApi.get<string>('gmail_client_secret')
+    const outlookClientId = await settingsApi.get<string>('outlook_client_id')
+    const outlookTenantId = await settingsApi.get<string>('outlook_tenant_id')
 
     if (gmailClientId) config.gmailClientId = gmailClientId
     if (gmailClientSecret) config.gmailClientSecret = gmailClientSecret
