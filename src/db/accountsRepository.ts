@@ -8,7 +8,6 @@ import type {
   MailCredentials,
   MailSettings,
   MailSettingsUpdate,
-  ProcessedEmail,
   ListAccountsOptions,
   AuthType,
   MailProvider,

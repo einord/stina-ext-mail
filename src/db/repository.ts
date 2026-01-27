@@ -44,4 +44,19 @@ export class MailRepository {
   async initialize(): Promise<void> {
     await this.db.initialize()
   }
+
+  /**
+   * Gets all unique user IDs that have mail accounts.
+   * This is used to schedule polling for all users at startup.
+   * @returns Array of unique user IDs
+   */
+  async getAllUserIds(): Promise<string[]> {
+    await this.db.initialize()
+
+    const rows = await this.db.execute<{ user_id: string }>(
+      `SELECT DISTINCT user_id FROM ext_mail_reader_accounts WHERE enabled = 1`
+    )
+
+    return rows.map((row) => row.user_id)
+  }
 }

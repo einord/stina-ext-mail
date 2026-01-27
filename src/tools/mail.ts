@@ -85,9 +85,7 @@ export function createListRecentTool(
           try {
             const provider = providers.getRequired(account.provider)
             const sinceUid = await userRepo.processed.getHighestUid(account.id)
-            console.log(`[Mail] Fetching from ${account.name}, sinceUid:`, sinceUid)
             const emails = await provider.fetchNewEmails(account, account.credentials, sinceUid)
-            console.log(`[Mail] Got ${emails.length} emails from ${account.name}`)
 
             // Add account info to each email
             for (const email of emails) {
@@ -106,8 +104,7 @@ export function createListRecentTool(
             // Update sync status
             await userRepo.accounts.updateSyncStatus(account.id, null)
           } catch (error) {
-            // Log error but continue with other accounts
-            console.error(`Failed to fetch from ${account.name}:`, error)
+            // Continue with other accounts on error
             await userRepo.accounts.updateSyncStatus(
               account.id,
               error instanceof Error ? error.message : String(error)

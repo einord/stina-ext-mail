@@ -5,7 +5,7 @@
 import type { Tool, ToolResult, ExecutionContext } from '@stina/extension-api/runtime'
 import type { MailRepository } from '../db/repository.js'
 import type { ProviderRegistry } from '../providers/index.js'
-import type { MailProvider, MailAccountInput } from '../types.js'
+import type { MailAccountInput } from '../types.js'
 
 /**
  * Creates the mail_accounts_list tool.

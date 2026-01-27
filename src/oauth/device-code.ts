@@ -2,7 +2,7 @@
  * OAuth2 Device Code Flow base implementation
  */
 
-import type { DeviceCodeResponse, TokenResponse } from '../types.js'
+import type { TokenResponse } from '../types.js'
 
 /**
  * Device code flow configuration

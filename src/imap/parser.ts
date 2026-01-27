@@ -87,8 +87,7 @@ export async function parseEmail(source: Buffer | string): Promise<ParsedEmailRe
       hasAttachments: (parsed.attachments?.length || 0) > 0,
       attachmentCount: parsed.attachments?.length || 0,
     }
-  } catch (error) {
-    console.error('Failed to parse email:', error)
+  } catch {
     return {
       body: '[Failed to parse email content]',
       snippet: '[Failed to parse email]',
@@ -213,9 +212,11 @@ export function formatEmailInstruction(
     `To: ${toDisplay} (${accountName})`,
     `Subject: ${email.subject}`,
     `Date: ${new Date(email.date).toLocaleString()}`,
+    'Email content:',
     '---',
     email.body,
     '---',
+    ''
   ]
 
   if (instruction) {

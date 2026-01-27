@@ -90,8 +90,8 @@ export class IdleManager {
 
     try {
       await state.client.disconnect()
-    } catch (error) {
-      console.error(`Failed to disconnect IDLE for ${accountId}:`, error)
+    } catch {
+      // Ignore disconnect errors during cleanup
     }
 
     this.connections.delete(accountId)
@@ -117,7 +117,6 @@ export class IdleManager {
   private async enterIdleLoop(state: IdleState): Promise<void> {
     const imapClient = state.client.getClient()
     if (!imapClient) {
-      console.error(`No IMAP client available for ${state.accountId}`)
       return
     }
 
@@ -130,14 +129,13 @@ export class IdleManager {
         state.lastActivity = new Date()
 
         // Listen for new mail events
-        imapClient.on('exists', async (data: { count: number }) => {
-          console.log(`New mail detected for ${state.accountId}: ${data.count} messages`)
+        imapClient.on('exists', async () => {
           state.lastActivity = new Date()
 
           try {
             await this.onNewMail(state.accountId)
-          } catch (error) {
-            console.error(`Error handling new mail for ${state.accountId}:`, error)
+          } catch {
+            // Ignore new mail handling errors
           }
         })
 
@@ -146,8 +144,7 @@ export class IdleManager {
       } finally {
         lock.release()
       }
-    } catch (error) {
-      console.error(`IDLE error for ${state.accountId}:`, error)
+    } catch {
       await this.handleIdleError(state)
     }
   }
@@ -181,16 +178,9 @@ export class IdleManager {
     state.reconnectAttempts++
 
     if (state.reconnectAttempts > MAX_RECONNECT_ATTEMPTS) {
-      console.error(
-        `Max reconnect attempts reached for ${state.accountId}, giving up`
-      )
       await this.stopIdle(state.accountId)
       return
     }
-
-    console.log(
-      `Attempting to reconnect IDLE for ${state.accountId} (attempt ${state.reconnectAttempts})`
-    )
 
     // Wait before reconnecting
     await new Promise((resolve) => setTimeout(resolve, RECONNECT_DELAY))
@@ -199,8 +189,7 @@ export class IdleManager {
     try {
       await state.client.connect()
       await this.enterIdleLoop(state)
-    } catch (error) {
-      console.error(`Reconnect failed for ${state.accountId}:`, error)
+    } catch {
       await this.handleIdleError(state)
     }
   }
@@ -216,7 +205,6 @@ export class IdleManager {
 
       // If idle for too long, reconnect
       if (idleTime > IDLE_REFRESH_INTERVAL) {
-        console.log(`Refreshing IDLE connection for ${state.accountId}`)
         void this.reconnectIdle(state)
       }
     }
@@ -235,8 +223,7 @@ export class IdleManager {
         state.isIdling = true
         state.lastActivity = new Date()
       }
-    } catch (error) {
-      console.error(`Failed to refresh IDLE for ${state.accountId}:`, error)
+    } catch {
       await this.handleIdleError(state)
     }
   }

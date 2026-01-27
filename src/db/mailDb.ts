@@ -145,4 +145,13 @@ export class MailDb {
   async execute<T = unknown>(sql: string, params?: unknown[]): Promise<T[]> {
     return this.db.execute<T>(sql, params)
   }
+
+  /**
+   * Gets the underlying database API for queries that don't need user scoping.
+   * Use with caution - most operations should use user-scoped instances.
+   * @returns The raw database API
+   */
+  getDatabase(): DatabaseAPI {
+    return this.db
+  }
 }

@@ -845,6 +845,31 @@ function activate(context: ExtensionContext): Disposable {
     context.log.info('Email polling scheduler configured', { intervalMs: POLL_INTERVAL_MS })
   }
 
+  // Auto-start polling for all existing users with accounts
+  const initializePollingForExistingUsers = async (): Promise<void> => {
+    try {
+      const userIds = await repository.getAllUserIds()
+
+      if (userIds.length === 0) {
+        context.log.info('No existing mail accounts found, polling will start when accounts are added')
+        return
+      }
+
+      context.log.info('Starting email polling for existing users', { userCount: userIds.length })
+
+      for (const userId of userIds) {
+        await schedulePollingForUser(userId)
+      }
+    } catch (error) {
+      context.log.warn('Failed to initialize polling for existing users', {
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+
+  // Schedule polling initialization after a short delay to ensure DB is ready
+  void initializePollingForExistingUsers()
+
   return {
     dispose: () => {
       void idleManager.stopAll()

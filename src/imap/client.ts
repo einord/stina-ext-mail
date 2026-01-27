@@ -6,6 +6,63 @@ import { ImapFlow } from 'imapflow'
 import type { ImapConfig, EmailMessage, EmailAddress } from '../types.js'
 import { parseEmail } from './parser.js'
 
+/** Default timeout for IMAP operations in milliseconds */
+const DEFAULT_TIMEOUT_MS = 30000
+
+/** Maximum retry attempts for transient network errors */
+const MAX_RETRY_ATTEMPTS = 3
+
+/** Base delay for exponential backoff in milliseconds */
+const BASE_RETRY_DELAY_MS = 1000
+
+/**
+ * Checks if an error is a transient network error that should be retried.
+ * @param error The error to check
+ * @returns True if the error is transient and should be retried
+ */
+function isTransientError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false
+
+  const message = error.message.toLowerCase()
+  const code = (error as Error & { code?: string }).code?.toLowerCase() || ''
+
+  // Common transient network errors
+  const transientPatterns = [
+    'etimedout',
+    'econnreset',
+    'econnrefused',
+    'enotfound',
+    'enetunreach',
+    'ehostunreach',
+    'timeout',
+    'socket hang up',
+    'connection reset',
+    'network',
+    'temporary',
+  ]
+
+  return transientPatterns.some((pattern) => message.includes(pattern) || code.includes(pattern))
+}
+
+/**
+ * Delays execution for a specified time.
+ * @param ms Milliseconds to wait
+ */
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/**
+ * Calculates exponential backoff delay with jitter.
+ * @param attempt Current attempt number (0-indexed)
+ * @returns Delay in milliseconds
+ */
+function calculateBackoffDelay(attempt: number): number {
+  const exponentialDelay = BASE_RETRY_DELAY_MS * Math.pow(2, attempt)
+  const jitter = Math.random() * 1000 // Add up to 1 second of random jitter
+  return Math.min(exponentialDelay + jitter, 30000) // Cap at 30 seconds
+}
+
 /**
  * Extracts a detailed error message from ImapFlow errors.
  * @param error The error object
@@ -51,14 +108,22 @@ function formatImapError(error: unknown): string {
 }
 
 /**
- * IMAP client wrapper for connecting to mail servers
+ * IMAP client wrapper for connecting to mail servers.
+ * Includes timeout handling and retry logic for transient network errors.
  */
 export class ImapClient {
   private client: ImapFlow | null = null
   private readonly config: ImapConfig
+  private readonly timeoutMs: number
 
-  constructor(config: ImapConfig) {
+  /**
+   * Creates a new IMAP client instance.
+   * @param config IMAP configuration
+   * @param timeoutMs Timeout for IMAP operations in milliseconds (default: 30000)
+   */
+  constructor(config: ImapConfig, timeoutMs: number = DEFAULT_TIMEOUT_MS) {
     this.config = config
+    this.timeoutMs = timeoutMs
   }
 
   /**
@@ -74,6 +139,9 @@ export class ImapClient {
       secure: this.config.secure,
       auth: authConfig,
       logger: false,
+      connectionTimeout: this.timeoutMs,
+      greetingTimeout: this.timeoutMs,
+      socketTimeout: this.timeoutMs,
     })
 
     await this.client.connect()
@@ -111,28 +179,64 @@ export class ImapClient {
   }
 
   /**
-   * Tests the connection to the IMAP server.
-   * Throws an error if connection fails with details about the failure.
+   * Tests the connection to the IMAP server with retry logic.
+   * Throws an error if connection fails after all retries.
    */
   async testConnection(): Promise<void> {
-    try {
-      console.log('[IMAP] Testing connection to', this.config.host, 'port', this.config.port)
+    await this.withRetry(async () => {
       await this.connect()
 
       // Try to select INBOX to verify access
-      console.log('[IMAP] Connected, testing INBOX access...')
       await this.client!.getMailboxLock('INBOX')
-      console.log('[IMAP] Connection test successful')
       await this.disconnect()
-    } catch (error) {
-      console.error('[IMAP] Connection test failed:', error)
-      await this.disconnect()
-      throw new Error(formatImapError(error))
+    }, 'testConnection')
+  }
+
+  /**
+   * Executes an operation with retry logic for transient network errors.
+   * Uses exponential backoff between retries.
+   * @param operation The async operation to execute
+   * @param operationName Name for logging purposes
+   * @returns The result of the operation
+   */
+  private async withRetry<T>(
+    operation: () => Promise<T>,
+    _operationName: string
+  ): Promise<T> {
+    let lastError: Error | undefined
+
+    for (let attempt = 0; attempt < MAX_RETRY_ATTEMPTS; attempt++) {
+      try {
+        return await operation()
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error))
+
+        // Clean up connection state before retry
+        try {
+          await this.disconnect()
+        } catch {
+          // Ignore disconnect errors during cleanup
+        }
+
+        // Check if error is transient and we should retry
+        if (isTransientError(error) && attempt < MAX_RETRY_ATTEMPTS - 1) {
+          const backoffDelay = calculateBackoffDelay(attempt)
+          await delay(backoffDelay)
+          continue
+        }
+
+        // Non-transient error or max retries reached
+        throw new Error(formatImapError(lastError))
+      }
     }
+
+    // Should not reach here, but TypeScript requires it
+    throw new Error(formatImapError(lastError))
   }
 
   /**
    * Fetches new emails from INBOX since a given UID.
+   * Includes retry logic for transient network errors.
    * @param accountId Account ID for tracking
    * @param sinceUid Only fetch emails with UID greater than this
    * @param limit Maximum number of emails to fetch
@@ -143,38 +247,29 @@ export class ImapClient {
     sinceUid: number = 0,
     limit: number = 50
   ): Promise<EmailMessage[]> {
-    if (!this.client) {
-      throw new Error('Not connected to IMAP server')
-    }
+    return this.withRetry(async () => {
+      if (!this.client) {
+        throw new Error('Not connected to IMAP server')
+      }
 
-    const emails: EmailMessage[] = []
+      const emails: EmailMessage[] = []
 
-    try {
-      console.log('[IMAP] Fetching emails, sinceUid:', sinceUid, 'limit:', limit)
       const lock = await this.client.getMailboxLock('INBOX')
-      console.log('[IMAP] INBOX status:', {
-        exists: this.client.mailbox?.exists,
-        uidNext: this.client.mailbox?.uidNext,
-      })
 
       try {
         // Build search criteria for new messages
         const searchCriteria = sinceUid > 0 ? { uid: `${sinceUid + 1}:*` } : { all: true }
-        console.log('[IMAP] Search criteria:', searchCriteria)
 
         // Search for messages
         const uidsResult = await this.client.search(searchCriteria, { uid: true })
-        console.log('[IMAP] Search result:', uidsResult)
 
         // Handle case when search returns false (no messages)
         if (!uidsResult || !Array.isArray(uidsResult)) {
-          console.log('[IMAP] No messages found (empty result)')
           return emails
         }
 
         // Limit results - take the most recent UIDs
         const uidsToFetch = uidsResult.slice(-limit)
-        console.log('[IMAP] UIDs to fetch:', uidsToFetch.length, 'UIDs, range:', uidsToFetch[0], '-', uidsToFetch[uidsToFetch.length - 1])
 
         if (uidsToFetch.length === 0) {
           return emails
@@ -182,18 +277,12 @@ export class ImapClient {
 
         // Fetch message details using UID FETCH
         // Pass range as object with uid property to use UID FETCH command
-        console.log('[IMAP] Starting fetch loop...')
-        let fetchCount = 0
-        let skipCount = 0
         for await (const message of this.client.fetch(
           { uid: uidsToFetch.join(',') },
           { envelope: true, source: true }
         )) {
-          fetchCount++
           try {
             if (!message.source) {
-              skipCount++
-              console.log('[IMAP] Skipping message (no source):', message.uid)
               continue
             }
             const parsed = await parseEmail(message.source)
@@ -213,20 +302,16 @@ export class ImapClient {
             }
 
             emails.push(email)
-          } catch (parseError) {
-            console.error('[IMAP] Failed to parse email:', message.uid, parseError)
+          } catch {
+            // Skip emails that fail to parse
           }
         }
-        console.log('[IMAP] Fetch complete. Fetched:', fetchCount, 'Skipped:', skipCount, 'Parsed:', emails.length)
       } finally {
         lock.release()
       }
-    } catch (error) {
-      console.error('[IMAP] Failed to fetch emails:', error)
-      throw error
-    }
 
-    return emails
+      return emails
+    }, 'fetchNewEmails')
   }
 
   /**
