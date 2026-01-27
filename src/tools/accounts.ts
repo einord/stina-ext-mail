@@ -392,25 +392,32 @@ export function createTestAccountTool(
         }
 
         const provider = providers.getRequired(account.provider)
-        const connected = await provider.testConnection(account, account.credentials)
+        await provider.testConnection(account, account.credentials)
 
-        // Update sync status
-        await userRepo.accounts.updateSyncStatus(
-          id,
-          connected ? null : 'Connection test failed'
-        )
+        // Update sync status on success
+        await userRepo.accounts.updateSyncStatus(id, null)
 
         return {
           success: true,
           data: {
-            connected,
-            message: connected ? 'Connection successful' : 'Connection failed',
+            connected: true,
+            message: 'Connection successful',
           },
         }
       } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error)
+
+        // Try to update sync status with the error
+        try {
+          const userRepo = repository.withUser(context.userId)
+          await userRepo.accounts.updateSyncStatus(id, errorMessage)
+        } catch {
+          // Ignore update errors
+        }
+
         return {
           success: false,
-          error: error instanceof Error ? error.message : String(error),
+          error: errorMessage,
         }
       }
     },

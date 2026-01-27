@@ -31,12 +31,12 @@ export interface MailProviderInterface {
   getImapConfig(account: MailAccount, credentials: MailCredentials): ImapConfig
 
   /**
-   * Test connection to the mail server
+   * Test connection to the mail server.
+   * Throws an error with details if connection fails.
    * @param account The mail account
    * @param credentials Decrypted credentials
-   * @returns True if connection successful
    */
-  testConnection(account: MailAccount, credentials: MailCredentials): Promise<boolean>
+  testConnection(account: MailAccount, credentials: MailCredentials): Promise<void>
 
   /**
    * Fetch new emails from the account

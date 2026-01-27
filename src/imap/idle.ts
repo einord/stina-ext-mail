@@ -197,12 +197,8 @@ export class IdleManager {
 
     // Try to reconnect
     try {
-      const connected = await state.client.connect()
-      if (connected) {
-        await this.enterIdleLoop(state)
-      } else {
-        await this.handleIdleError(state)
-      }
+      await state.client.connect()
+      await this.enterIdleLoop(state)
     } catch (error) {
       console.error(`Reconnect failed for ${state.accountId}:`, error)
       await this.handleIdleError(state)

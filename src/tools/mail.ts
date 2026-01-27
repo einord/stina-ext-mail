@@ -85,7 +85,9 @@ export function createListRecentTool(
           try {
             const provider = providers.getRequired(account.provider)
             const sinceUid = await userRepo.processed.getHighestUid(account.id)
+            console.log(`[Mail] Fetching from ${account.name}, sinceUid:`, sinceUid)
             const emails = await provider.fetchNewEmails(account, account.credentials, sinceUid)
+            console.log(`[Mail] Got ${emails.length} emails from ${account.name}`)
 
             // Add account info to each email
             for (const email of emails) {

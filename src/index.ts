@@ -60,13 +60,13 @@ type ChatAPI = {
 type SchedulerAPI = {
   schedule: (job: {
     id: string
-    schedule: { type: 'at'; at: string } | { type: 'interval'; seconds: number }
+    schedule: { type: 'at'; at: string } | { type: 'interval'; everyMs: number } | { type: 'cron'; cron: string; timezone?: string }
     payload?: Record<string, unknown>
     userId: string
   }) => Promise<void>
   cancel: (jobId: string) => Promise<void>
   onFire: (
-    callback: (payload: { jobId: string; payload?: Record<string, unknown> }, execContext: ExecutionContext) => void
+    callback: (payload: { id: string; payload?: Record<string, unknown>; userId: string }, execContext: ExecutionContext) => void
   ) => Disposable
 }
 
@@ -162,6 +162,40 @@ function activate(context: ExtensionContext): Disposable {
     // In a full implementation, fetch the new emails and notify Stina
   })
 
+  // Sync baseline UIDs for an account (no notifications, just mark current state)
+  const syncAccountBaseline = async (
+    accountId: string,
+    userId: string
+  ): Promise<void> => {
+    try {
+      const userRepo = repository.withUser(userId)
+      const account = await userRepo.accounts.get(accountId)
+      if (!account || !account.enabled) return
+
+      const provider = providers.getRequired(account.provider)
+
+      // Fetch recent emails just to get the highest UID
+      const emails = await provider.fetchNewEmails(account, account.credentials, 0)
+
+      if (emails.length > 0) {
+        // Find the highest UID and mark it as processed (baseline)
+        const highestUid = Math.max(...emails.map(e => e.uid))
+        const latestEmail = emails.find(e => e.uid === highestUid)
+        if (latestEmail) {
+          await userRepo.processed.markProcessed(accountId, latestEmail.messageId, latestEmail.uid)
+          context.log.info('Synced baseline for account', { accountId, highestUid })
+        }
+      }
+
+      await userRepo.accounts.updateSyncStatus(accountId, null)
+    } catch (error) {
+      context.log.warn('Failed to sync baseline', {
+        accountId,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+
   // Handle new email notification
   const handleNewEmail = async (
     accountId: string,
@@ -177,6 +211,13 @@ function activate(context: ExtensionContext): Disposable {
       const settings = await userRepo.settings.get()
       const provider = providers.getRequired(account.provider)
       const sinceUid = await userRepo.processed.getHighestUid(accountId)
+
+      // If no baseline exists, sync it first (no notifications)
+      if (sinceUid === 0) {
+        context.log.info('No baseline for account, syncing...', { accountId })
+        await syncAccountBaseline(accountId, userId)
+        return
+      }
 
       const emails = await provider.fetchNewEmails(account, account.credentials, sinceUid)
 
@@ -203,6 +244,12 @@ function activate(context: ExtensionContext): Disposable {
 
         // Mark as processed
         await userRepo.processed.markProcessed(accountId, email.messageId, email.uid)
+
+        context.log.info('Notified about new email', {
+          accountId,
+          subject: email.subject,
+          from: email.from.address
+        })
       }
 
       // Update sync status
@@ -210,6 +257,47 @@ function activate(context: ExtensionContext): Disposable {
     } catch (error) {
       context.log.warn('Failed to handle new email', {
         accountId,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+
+  // Poll all accounts for a user
+  const pollAllAccounts = async (userId: string): Promise<void> => {
+    try {
+      const userRepo = repository.withUser(userId)
+      const accounts = await userRepo.accounts.list()
+
+      for (const account of accounts) {
+        if (!account.enabled) continue
+        await handleNewEmail(account.id, userId)
+      }
+    } catch (error) {
+      context.log.warn('Failed to poll accounts', {
+        userId,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+
+  // Set up email polling scheduler
+  const POLL_INTERVAL_MS = 60 * 1000 // Poll every minute (in milliseconds)
+  const scheduledUsers = new Set<string>()
+
+  const schedulePollingForUser = async (userId: string): Promise<void> => {
+    if (!scheduler || scheduledUsers.has(userId)) return
+
+    try {
+      await scheduler.schedule({
+        id: `mail-poll-${userId}`,
+        schedule: { type: 'interval', everyMs: POLL_INTERVAL_MS },
+        userId,
+      })
+      scheduledUsers.add(userId)
+      context.log.info('Scheduled email polling for user', { userId, intervalMs: POLL_INTERVAL_MS })
+    } catch (error) {
+      context.log.warn('Failed to schedule polling', {
+        userId,
         error: error instanceof Error ? error.message : String(error),
       })
     }
@@ -489,16 +577,13 @@ function activate(context: ExtensionContext): Disposable {
 
             try {
               const provider = providers.getRequired(testAccount.provider)
-              const connected = await provider.testConnection(
-                testAccount,
-                testAccount.credentials
-              )
+              await provider.testConnection(testAccount, testAccount.credentials)
 
               return {
                 success: true,
                 data: {
-                  connected,
-                  message: connected ? 'Connection successful!' : 'Connection failed',
+                  connected: true,
+                  message: 'Connection successful!',
                 },
               }
             } catch (error) {
@@ -535,6 +620,9 @@ function activate(context: ExtensionContext): Disposable {
               state.showModal = false
               emitEditChanged()
               emitAccountChanged()
+
+              // Start polling for this user if not already scheduled
+              void schedulePollingForUser(execContext.userId)
 
               return { success: true }
             } catch (error) {
@@ -741,9 +829,32 @@ function activate(context: ExtensionContext): Disposable {
       : [],
   })
 
+  // Listen for scheduler events
+  let schedulerDisposable: Disposable | undefined
+  if (scheduler) {
+    schedulerDisposable = scheduler.onFire(async (firePayload: { id: string; payload?: Record<string, unknown>; userId: string }, execContext) => {
+      if (!firePayload.id.startsWith('mail-poll-')) return
+
+      const userId = firePayload.userId || execContext.userId
+      if (!userId) return
+
+      context.log.debug('Polling triggered', { userId })
+      await pollAllAccounts(userId)
+    })
+
+    context.log.info('Email polling scheduler configured', { intervalMs: POLL_INTERVAL_MS })
+  }
+
   return {
     dispose: () => {
       void idleManager.stopAll()
+      schedulerDisposable?.dispose()
+      // Cancel all scheduled jobs
+      if (scheduler) {
+        for (const userId of scheduledUsers) {
+          void scheduler.cancel(`mail-poll-${userId}`)
+        }
+      }
       for (const disposable of disposables) {
         disposable.dispose()
       }

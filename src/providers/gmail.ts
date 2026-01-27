@@ -58,16 +58,16 @@ export class GmailProvider implements MailProviderInterface {
 
   /**
    * Tests connection to Gmail IMAP.
+   * Throws an error with details if connection fails.
    * @param account Mail account
    * @param credentials Decrypted credentials
-   * @returns True if connection successful
    */
-  async testConnection(account: MailAccount, credentials: MailCredentials): Promise<boolean> {
+  async testConnection(account: MailAccount, credentials: MailCredentials): Promise<void> {
     // Refresh token if needed before testing
     const refreshedCreds = await this.maybeRefreshCredentials(credentials)
     const config = this.getImapConfig(account, refreshedCreds)
     const client = new ImapClient(config)
-    return client.testConnection()
+    await client.testConnection()
   }
 
   /**

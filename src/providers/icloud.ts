@@ -47,14 +47,14 @@ export class ICloudProvider implements MailProviderInterface {
 
   /**
    * Tests connection to iCloud IMAP.
+   * Throws an error with details if connection fails.
    * @param account Mail account
    * @param credentials Decrypted credentials
-   * @returns True if connection successful
    */
-  async testConnection(account: MailAccount, credentials: MailCredentials): Promise<boolean> {
+  async testConnection(account: MailAccount, credentials: MailCredentials): Promise<void> {
     const config = this.getImapConfig(account, credentials)
     const client = new ImapClient(config)
-    return client.testConnection()
+    await client.testConnection()
   }
 
   /**
