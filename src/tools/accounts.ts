@@ -2,6 +2,7 @@
  * Mail Account Tools
  */
 
+import type { Tool, ToolResult, ExecutionContext } from '@stina/extension-api/runtime'
 import type { MailRepository } from '../db/repository.js'
 import type { ProviderRegistry } from '../providers/index.js'
 import type { MailProvider, MailAccountInput } from '../types.js'
@@ -11,15 +12,28 @@ import type { MailProvider, MailAccountInput } from '../types.js'
  * @param repository Mail repository
  * @returns Tool definition
  */
-export function createListAccountsTool(repository: MailRepository) {
+export function createListAccountsTool(repository: MailRepository): Tool {
   return {
     id: 'mail_accounts_list',
     name: 'List Mail Accounts',
     description: 'Lists all configured mail accounts for the current user',
+    parameters: {
+      type: 'object',
+      properties: {
+        limit: {
+          type: 'number',
+          description: 'Maximum number of accounts to return',
+        },
+        offset: {
+          type: 'number',
+          description: 'Number of accounts to skip for pagination',
+        },
+      },
+    },
     async execute(
       params: Record<string, unknown>,
-      context: { userId?: string }
-    ) {
+      context: ExecutionContext
+    ): Promise<ToolResult> {
       if (!context.userId) {
         return { success: false, error: 'User context required' }
       }
@@ -72,15 +86,62 @@ export function createListAccountsTool(repository: MailRepository) {
 export function createAddAccountTool(
   repository: MailRepository,
   providers: ProviderRegistry
-) {
+): Tool {
   return {
     id: 'mail_accounts_add',
     name: 'Add Mail Account',
     description: 'Adds a new mail account with the specified provider and credentials',
+    parameters: {
+      type: 'object',
+      properties: {
+        provider: {
+          type: 'string',
+          description: 'Email provider type: icloud, gmail, outlook, or imap',
+          enum: ['icloud', 'gmail', 'outlook', 'imap'],
+        },
+        name: {
+          type: 'string',
+          description: 'Display name for this account (e.g., "Work Email")',
+        },
+        email: {
+          type: 'string',
+          description: 'Email address for the account',
+        },
+        imapHost: {
+          type: 'string',
+          description: 'IMAP server hostname (required for generic IMAP)',
+        },
+        imapPort: {
+          type: 'number',
+          description: 'IMAP server port (default: 993)',
+        },
+        username: {
+          type: 'string',
+          description: 'Username for authentication (defaults to email)',
+        },
+        password: {
+          type: 'string',
+          description: 'Password or app-specific password',
+        },
+        accessToken: {
+          type: 'string',
+          description: 'OAuth2 access token (for Gmail/Outlook)',
+        },
+        refreshToken: {
+          type: 'string',
+          description: 'OAuth2 refresh token (for Gmail/Outlook)',
+        },
+        expiresAt: {
+          type: 'string',
+          description: 'OAuth2 token expiration time (ISO 8601)',
+        },
+      },
+      required: ['provider', 'name', 'email'],
+    },
     async execute(
       params: Record<string, unknown>,
-      context: { userId?: string }
-    ) {
+      context: ExecutionContext
+    ): Promise<ToolResult> {
       if (!context.userId) {
         return { success: false, error: 'User context required' }
       }
@@ -121,15 +182,66 @@ export function createAddAccountTool(
  * @param repository Mail repository
  * @returns Tool definition
  */
-export function createUpdateAccountTool(repository: MailRepository) {
+export function createUpdateAccountTool(repository: MailRepository): Tool {
   return {
     id: 'mail_accounts_update',
     name: 'Update Mail Account',
     description: 'Updates an existing mail account configuration',
+    parameters: {
+      type: 'object',
+      properties: {
+        id: {
+          type: 'string',
+          description: 'The unique ID of the account to update',
+        },
+        provider: {
+          type: 'string',
+          description: 'Email provider type: icloud, gmail, outlook, or imap',
+          enum: ['icloud', 'gmail', 'outlook', 'imap'],
+        },
+        name: {
+          type: 'string',
+          description: 'Display name for this account',
+        },
+        email: {
+          type: 'string',
+          description: 'Email address for the account',
+        },
+        imapHost: {
+          type: 'string',
+          description: 'IMAP server hostname',
+        },
+        imapPort: {
+          type: 'number',
+          description: 'IMAP server port',
+        },
+        username: {
+          type: 'string',
+          description: 'Username for authentication',
+        },
+        password: {
+          type: 'string',
+          description: 'New password or app-specific password',
+        },
+        accessToken: {
+          type: 'string',
+          description: 'OAuth2 access token',
+        },
+        refreshToken: {
+          type: 'string',
+          description: 'OAuth2 refresh token',
+        },
+        expiresAt: {
+          type: 'string',
+          description: 'OAuth2 token expiration time (ISO 8601)',
+        },
+      },
+      required: ['id'],
+    },
     async execute(
       params: Record<string, unknown>,
-      context: { userId?: string }
-    ) {
+      context: ExecutionContext
+    ): Promise<ToolResult> {
       if (!context.userId) {
         return { success: false, error: 'User context required' }
       }
@@ -189,15 +301,25 @@ export function createUpdateAccountTool(repository: MailRepository) {
 export function createDeleteAccountTool(
   repository: MailRepository,
   onDelete?: (accountId: string, userId: string) => void
-) {
+): Tool {
   return {
     id: 'mail_accounts_delete',
     name: 'Delete Mail Account',
     description: 'Deletes a mail account and stops any active connections',
+    parameters: {
+      type: 'object',
+      properties: {
+        id: {
+          type: 'string',
+          description: 'The unique ID of the account to delete',
+        },
+      },
+      required: ['id'],
+    },
     async execute(
       params: Record<string, unknown>,
-      context: { userId?: string }
-    ) {
+      context: ExecutionContext
+    ): Promise<ToolResult> {
       if (!context.userId) {
         return { success: false, error: 'User context required' }
       }
@@ -236,15 +358,25 @@ export function createDeleteAccountTool(
 export function createTestAccountTool(
   repository: MailRepository,
   providers: ProviderRegistry
-) {
+): Tool {
   return {
     id: 'mail_accounts_test',
     name: 'Test Mail Account',
     description: 'Tests the connection to a mail account',
+    parameters: {
+      type: 'object',
+      properties: {
+        id: {
+          type: 'string',
+          description: 'The unique ID of the account to test',
+        },
+      },
+      required: ['id'],
+    },
     async execute(
       params: Record<string, unknown>,
-      context: { userId?: string }
-    ) {
+      context: ExecutionContext
+    ): Promise<ToolResult> {
       if (!context.userId) {
         return { success: false, error: 'User context required' }
       }

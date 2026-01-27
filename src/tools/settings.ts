@@ -2,6 +2,7 @@
  * Settings Tools
  */
 
+import type { Tool, ToolResult, ExecutionContext } from '@stina/extension-api/runtime'
 import type { MailRepository } from '../db/repository.js'
 import type { MailSettingsUpdate } from '../types.js'
 
@@ -10,15 +11,19 @@ import type { MailSettingsUpdate } from '../types.js'
  * @param repository Mail repository
  * @returns Tool definition
  */
-export function createGetSettingsTool(repository: MailRepository) {
+export function createGetSettingsTool(repository: MailRepository): Tool {
   return {
     id: 'mail_settings_get',
     name: 'Get Mail Settings',
     description: 'Gets the current mail settings including the global instruction',
+    parameters: {
+      type: 'object',
+      properties: {},
+    },
     async execute(
       _params: Record<string, unknown>,
-      context: { userId?: string }
-    ) {
+      context: ExecutionContext
+    ): Promise<ToolResult> {
       if (!context.userId) {
         return { success: false, error: 'User context required' }
       }
@@ -52,15 +57,24 @@ export function createGetSettingsTool(repository: MailRepository) {
 export function createUpdateSettingsTool(
   repository: MailRepository,
   onUpdate?: (userId: string) => void
-) {
+): Tool {
   return {
     id: 'mail_settings_update',
     name: 'Update Mail Settings',
     description: 'Updates the mail settings such as the global instruction for handling emails',
+    parameters: {
+      type: 'object',
+      properties: {
+        instruction: {
+          type: 'string',
+          description: 'Global instruction for how to handle incoming emails',
+        },
+      },
+    },
     async execute(
       params: Record<string, unknown>,
-      context: { userId?: string }
-    ) {
+      context: ExecutionContext
+    ): Promise<ToolResult> {
       if (!context.userId) {
         return { success: false, error: 'User context required' }
       }

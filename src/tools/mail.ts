@@ -2,6 +2,7 @@
  * Mail Tools
  */
 
+import type { Tool, ToolResult, ExecutionContext } from '@stina/extension-api/runtime'
 import type { MailRepository } from '../db/repository.js'
 import type { ProviderRegistry } from '../providers/index.js'
 
@@ -14,15 +15,28 @@ import type { ProviderRegistry } from '../providers/index.js'
 export function createListRecentTool(
   repository: MailRepository,
   providers: ProviderRegistry
-) {
+): Tool {
   return {
     id: 'mail_list_recent',
     name: 'List Recent Emails',
     description: 'Lists recent emails from all or a specific mail account',
+    parameters: {
+      type: 'object',
+      properties: {
+        accountId: {
+          type: 'string',
+          description: 'Filter emails to a specific account ID (optional, lists all if not provided)',
+        },
+        limit: {
+          type: 'number',
+          description: 'Maximum number of emails to return (default: 10)',
+        },
+      },
+    },
     async execute(
       params: Record<string, unknown>,
-      context: { userId?: string }
-    ) {
+      context: ExecutionContext
+    ): Promise<ToolResult> {
       if (!context.userId) {
         return { success: false, error: 'User context required' }
       }
@@ -140,15 +154,25 @@ export function createListRecentTool(
 export function createGetMailTool(
   repository: MailRepository,
   providers: ProviderRegistry
-) {
+): Tool {
   return {
     id: 'mail_get',
     name: 'Get Email',
     description: 'Gets the full content of a specific email by its ID',
+    parameters: {
+      type: 'object',
+      properties: {
+        id: {
+          type: 'string',
+          description: 'The email ID in format "accountId:uid"',
+        },
+      },
+      required: ['id'],
+    },
     async execute(
       params: Record<string, unknown>,
-      context: { userId?: string }
-    ) {
+      context: ExecutionContext
+    ): Promise<ToolResult> {
       if (!context.userId) {
         return { success: false, error: 'User context required' }
       }

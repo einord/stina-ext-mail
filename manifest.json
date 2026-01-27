@@ -404,6 +404,16 @@
         "id": "mail_get",
         "name": "Get Email",
         "description": "Get a specific email by ID."
+      },
+      {
+        "id": "mail_settings_get",
+        "name": "Get Mail Settings",
+        "description": "Get the current mail settings including the global instruction."
+      },
+      {
+        "id": "mail_settings_update",
+        "name": "Update Mail Settings",
+        "description": "Update the mail settings such as the global instruction for handling emails."
       }
     ],
     "prompts": [
