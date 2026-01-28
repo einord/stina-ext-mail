@@ -11,6 +11,7 @@ import type {
   ListAccountsOptions,
   AuthType,
   MailProvider,
+  ImapSecurity,
 } from '../types.js'
 import type { MailDb } from './mailDb.js'
 
@@ -71,6 +72,7 @@ export class AccountsRepository {
       email: string
       imap_host: string | null
       imap_port: number | null
+      imap_security: string | null
       auth_type: string
       credentials: string
       enabled: number
@@ -79,7 +81,7 @@ export class AccountsRepository {
       created_at: string
       updated_at: string
     }>(
-      `SELECT id, user_id, provider, name, email, imap_host, imap_port,
+      `SELECT id, user_id, provider, name, email, imap_host, imap_port, imap_security,
               auth_type, credentials, enabled, last_sync_at, last_error,
               created_at, updated_at
        FROM ext_mail_reader_accounts
@@ -97,6 +99,7 @@ export class AccountsRepository {
       email: row.email,
       imapHost: row.imap_host,
       imapPort: row.imap_port,
+      imapSecurity: row.imap_security as ImapSecurity | null,
       authType: row.auth_type as AuthType,
       credentials: decryptCredentials(row.credentials),
       enabled: Boolean(row.enabled),
@@ -124,6 +127,7 @@ export class AccountsRepository {
       email: string
       imap_host: string | null
       imap_port: number | null
+      imap_security: string | null
       auth_type: string
       credentials: string
       enabled: number
@@ -132,7 +136,7 @@ export class AccountsRepository {
       created_at: string
       updated_at: string
     }>(
-      `SELECT id, user_id, provider, name, email, imap_host, imap_port,
+      `SELECT id, user_id, provider, name, email, imap_host, imap_port, imap_security,
               auth_type, credentials, enabled, last_sync_at, last_error,
               created_at, updated_at
        FROM ext_mail_reader_accounts
@@ -151,6 +155,7 @@ export class AccountsRepository {
       email: row.email,
       imapHost: row.imap_host,
       imapPort: row.imap_port,
+      imapSecurity: row.imap_security as ImapSecurity | null,
       authType: row.auth_type as AuthType,
       credentials: decryptCredentials(row.credentials),
       enabled: Boolean(row.enabled),
@@ -203,6 +208,8 @@ export class AccountsRepository {
       const provider = input.provider ?? existing.provider
       const imapHost = input.imapHost !== undefined ? input.imapHost : existing.imapHost
       const imapPort = input.imapPort !== undefined ? input.imapPort : existing.imapPort
+      const imapSecurity =
+        input.imapSecurity !== undefined ? input.imapSecurity : existing.imapSecurity
       const enabled = input.enabled !== undefined ? input.enabled : existing.enabled
 
       // Only update credentials if new ones are provided
@@ -212,7 +219,7 @@ export class AccountsRepository {
 
       await this.db.execute(
         `UPDATE ext_mail_reader_accounts
-         SET name = ?, email = ?, provider = ?, imap_host = ?, imap_port = ?,
+         SET name = ?, email = ?, provider = ?, imap_host = ?, imap_port = ?, imap_security = ?,
              auth_type = ?, credentials = ?, enabled = ?, updated_at = ?
          WHERE id = ? AND user_id = ?`,
         [
@@ -221,6 +228,7 @@ export class AccountsRepository {
           provider,
           imapHost,
           imapPort,
+          imapSecurity,
           finalAuthType,
           encryptCredentials(finalCredentials),
           enabled ? 1 : 0,
@@ -238,6 +246,7 @@ export class AccountsRepository {
         email,
         imapHost,
         imapPort,
+        imapSecurity,
         authType: finalAuthType,
         credentials: finalCredentials,
         enabled,
@@ -255,9 +264,9 @@ export class AccountsRepository {
 
     await this.db.execute(
       `INSERT INTO ext_mail_reader_accounts
-       (id, user_id, provider, name, email, imap_host, imap_port,
+       (id, user_id, provider, name, email, imap_host, imap_port, imap_security,
         auth_type, credentials, enabled, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         accountId,
         userId,
@@ -266,6 +275,7 @@ export class AccountsRepository {
         input.email,
         input.imapHost ?? null,
         input.imapPort ?? null,
+        input.imapSecurity ?? null,
         authType,
         encryptCredentials(credentials),
         input.enabled !== false ? 1 : 0,
@@ -282,6 +292,7 @@ export class AccountsRepository {
       email: input.email,
       imapHost: input.imapHost ?? null,
       imapPort: input.imapPort ?? null,
+      imapSecurity: input.imapSecurity ?? null,
       authType,
       credentials,
       enabled: input.enabled !== false,

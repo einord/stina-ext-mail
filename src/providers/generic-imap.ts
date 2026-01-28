@@ -37,10 +37,20 @@ export class GenericImapProvider implements MailProviderInterface {
 
     const port = account.imapPort || DEFAULT_IMAP_PORT
 
+    // Determine secure mode based on explicit setting or port-based fallback
+    let secure: boolean
+    if (account.imapSecurity) {
+      // Explicit security setting: 'ssl' = direct TLS, 'starttls'/'none' = upgrade or plain
+      secure = account.imapSecurity === 'ssl'
+    } else {
+      // Fallback to port-based detection for backwards compatibility
+      secure = port === 993
+    }
+
     return {
       host: account.imapHost,
       port,
-      secure: port === 993, // Use TLS for port 993, otherwise STARTTLS
+      secure,
       auth: {
         user: credentials.username || account.email,
         pass: credentials.password,

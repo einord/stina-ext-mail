@@ -17,6 +17,7 @@ export const mailAccounts = sqliteTable('ext_mail_reader_accounts', {
   // IMAP settings (for generic IMAP only)
   imapHost: text('imap_host'),
   imapPort: integer('imap_port'),
+  imapSecurity: text('imap_security'), // 'ssl' | 'starttls' | 'none'
 
   // Auth
   authType: text('auth_type').notNull(), // 'password' | 'oauth2'

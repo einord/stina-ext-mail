@@ -13,6 +13,11 @@ export type MailProvider = 'icloud' | 'gmail' | 'outlook' | 'imap'
 export type AuthType = 'password' | 'oauth2'
 
 /**
+ * IMAP connection security type
+ */
+export type ImapSecurity = 'ssl' | 'starttls' | 'none'
+
+/**
  * Mail account configuration
  */
 export interface MailAccount {
@@ -25,6 +30,7 @@ export interface MailAccount {
   // IMAP settings (for generic IMAP only)
   imapHost: string | null
   imapPort: number | null
+  imapSecurity: ImapSecurity | null
 
   // Auth
   authType: AuthType
@@ -72,6 +78,7 @@ export interface MailAccountInput {
   email: string
   imapHost?: string | null
   imapPort?: number | null
+  imapSecurity?: ImapSecurity | null
   username?: string
   password?: string
   accessToken?: string
@@ -210,6 +217,7 @@ export interface EditFormState {
   password: string
   imapHost: string
   imapPort: string
+  imapSecurity: ImapSecurity
   username: string
 }
 

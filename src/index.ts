@@ -100,6 +100,7 @@ function getDefaultEditState(): EditState {
       password: '',
       imapHost: '',
       imapPort: '993',
+      imapSecurity: 'ssl',
       username: '',
     },
     oauthStatus: 'pending',
@@ -603,6 +604,7 @@ function activate(context: ExtensionContext): Disposable {
               password: '',
               imapHost: '',
               imapPort: '993',
+              imapSecurity: 'ssl',
               username: '',
             }
             state.oauthStatus = 'pending'
@@ -641,6 +643,7 @@ function activate(context: ExtensionContext): Disposable {
               password: '',
               imapHost: account.imapHost || '',
               imapPort: String(account.imapPort || 993),
+              imapSecurity: account.imapSecurity || 'ssl',
               username:
                 account.credentials.type === 'password' ? account.credentials.username : '',
             }
@@ -785,6 +788,7 @@ function activate(context: ExtensionContext): Disposable {
               email: state.form.email,
               imapHost: state.form.imapHost || null,
               imapPort: parseInt(state.form.imapPort, 10) || null,
+              imapSecurity: state.form.imapSecurity || null,
               authType: 'password' as const,
               credentials: {
                 type: 'password' as const,
@@ -836,6 +840,7 @@ function activate(context: ExtensionContext): Disposable {
                 email: state.form.email,
                 imapHost: state.form.imapHost || undefined,
                 imapPort: state.form.imapPort ? parseInt(state.form.imapPort, 10) : undefined,
+                imapSecurity: state.form.imapSecurity || undefined,
                 username: state.form.username || undefined,
                 password: state.form.password || undefined,
               })

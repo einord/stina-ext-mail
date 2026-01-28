@@ -59,6 +59,7 @@ export class MailDb {
         email TEXT NOT NULL,
         imap_host TEXT,
         imap_port INTEGER,
+        imap_security TEXT,
         auth_type TEXT NOT NULL,
         credentials TEXT NOT NULL,
         enabled INTEGER NOT NULL DEFAULT 1,
@@ -68,6 +69,9 @@ export class MailDb {
         updated_at TEXT NOT NULL
       )`
     )
+
+    // Migration: Add imap_security column if it doesn't exist (for existing databases)
+    await this.migrateAddImapSecurity()
 
     // Mail settings table
     await this.db.execute(
@@ -150,6 +154,24 @@ export class MailDb {
     )
 
     MailDb.initializedDatabases.add(this.db)
+  }
+
+  /**
+   * Adds imap_security column to existing databases.
+   * This migration is idempotent and safe to run multiple times.
+   */
+  private async migrateAddImapSecurity(): Promise<void> {
+    // Check if column exists by querying table info
+    const columns = await this.db.execute<{ name: string }>(
+      `PRAGMA table_info(ext_mail_reader_accounts)`
+    )
+    const hasColumn = columns.some((col) => col.name === 'imap_security')
+
+    if (!hasColumn) {
+      await this.db.execute(
+        `ALTER TABLE ext_mail_reader_accounts ADD COLUMN imap_security TEXT`
+      )
+    }
   }
 
   /**
