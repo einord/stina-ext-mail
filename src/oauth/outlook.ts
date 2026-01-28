@@ -25,6 +25,12 @@ export interface OutlookOAuthConfig {
 const MS_AUTH_BASE = 'https://login.microsoftonline.com'
 
 /**
+ * Default Outlook OAuth2 client ID for Stina Mail Reader.
+ * This is a public client registered for Device Code Flow.
+ */
+export const DEFAULT_OUTLOOK_CLIENT_ID = '22f6cd67-c896-49b6-b68e-89d90035e0a7'
+
+/**
  * Outlook IMAP scope
  */
 const OUTLOOK_SCOPES = [

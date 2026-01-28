@@ -26,5 +26,6 @@ export {
   refreshOutlookToken,
   isOutlookTokenExpired,
   buildOutlookXOAuth2String,
+  DEFAULT_OUTLOOK_CLIENT_ID,
   type OutlookOAuthConfig,
 } from './outlook.js'

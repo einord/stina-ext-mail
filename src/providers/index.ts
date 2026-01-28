@@ -7,6 +7,7 @@ import type { MailProvider } from '../types.js'
 import { createICloudProvider } from './icloud.js'
 import { createGmailProvider, GmailProvider } from './gmail.js'
 import { createOutlookProvider, OutlookProvider } from './outlook.js'
+import { DEFAULT_OUTLOOK_CLIENT_ID } from '../oauth/index.js'
 import { createGenericImapProvider } from './generic-imap.js'
 
 export type { MailProviderInterface, ProviderConfig } from './types.js'
@@ -84,11 +85,11 @@ export class ProviderRegistry {
       })
     }
 
-    // Update Outlook provider with OAuth config
+    // Update Outlook provider with OAuth config (uses default client ID if not configured)
     const outlook = this.providers.get('outlook')
-    if (outlook && outlook instanceof OutlookProvider && config.outlookClientId) {
+    if (outlook && outlook instanceof OutlookProvider) {
       outlook.setOAuthConfig({
-        clientId: config.outlookClientId,
+        clientId: config.outlookClientId || DEFAULT_OUTLOOK_CLIENT_ID,
         tenantId: config.outlookTenantId,
       })
     }

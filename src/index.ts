@@ -34,6 +34,7 @@ import {
   pollGmailToken,
   initiateOutlookAuth,
   pollOutlookToken,
+  DEFAULT_OUTLOOK_CLIENT_ID,
 } from './oauth/index.js'
 
 type EventsApi = { emit: (name: string, payload?: Record<string, unknown>) => Promise<void> }
@@ -620,15 +621,10 @@ function activate(context: ExtensionContext): Disposable {
                   config
                 )
               } else if (state.form.provider === 'outlook') {
-                if (!config.outlookClientId) {
-                  return {
-                    success: false,
-                    error: 'Outlook OAuth not configured. Please set Client ID in admin settings.',
-                  }
-                }
+                const outlookClientId = config.outlookClientId || DEFAULT_OUTLOOK_CLIENT_ID
 
                 const result = await initiateOutlookAuth({
-                  clientId: config.outlookClientId,
+                  clientId: outlookClientId,
                   tenantId: config.outlookTenantId,
                 })
 
@@ -850,9 +846,10 @@ function activate(context: ExtensionContext): Disposable {
             { clientId: config.gmailClientId, clientSecret: config.gmailClientSecret },
             deviceCode
           )
-        } else if (provider === 'outlook' && config.outlookClientId) {
+        } else if (provider === 'outlook') {
+          const outlookClientId = config.outlookClientId || DEFAULT_OUTLOOK_CLIENT_ID
           token = await pollOutlookToken(
-            { clientId: config.outlookClientId, tenantId: config.outlookTenantId },
+            { clientId: outlookClientId, tenantId: config.outlookTenantId },
             deviceCode
           )
         }
