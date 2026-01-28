@@ -250,9 +250,16 @@ function activate(context: ExtensionContext): Disposable {
       const emails = await provider.fetchNewEmails(account, account.credentials, sinceUid)
 
       for (const email of emails) {
-        // Check if already processed
-        const isProcessed = await userRepo.processed.isProcessed(accountId, email.messageId)
-        if (isProcessed) continue
+        // Atomically try to mark as processed - only proceed if we're the first
+        const wasMarked = await userRepo.processed.tryMarkProcessed(
+          accountId,
+          email.messageId,
+          email.uid
+        )
+        if (!wasMarked) {
+          // Another process already claimed this email
+          continue
+        }
 
         // Format instruction for Stina with user info
         const formatOptions: FormatEmailOptions = {
@@ -272,9 +279,6 @@ function activate(context: ExtensionContext): Disposable {
 
         // Send to Stina
         await chat.appendInstruction({ text: instruction, userId })
-
-        // Mark as processed
-        await userRepo.processed.markProcessed(accountId, email.messageId, email.uid)
 
         context.log.info('Notified about new email', {
           accountId,

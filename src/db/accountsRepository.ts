@@ -497,6 +497,40 @@ export class ProcessedRepository {
   }
 
   /**
+   * Atomically tries to mark an email as processed.
+   * Returns true if the email was newly marked (this caller should process it).
+   * Returns false if the email was already marked (another caller already processed it).
+   * @param accountId Account ID
+   * @param messageId Email Message-ID header
+   * @param uid IMAP UID
+   * @returns True if this call marked the email, false if already marked
+   */
+  async tryMarkProcessed(accountId: string, messageId: string, uid: number): Promise<boolean> {
+    await this.db.initialize()
+
+    const userId = this.db.getUserId()
+    const processedId = generateId('prc')
+    const now = new Date().toISOString()
+
+    // INSERT OR IGNORE will silently skip if unique constraint violated
+    await this.db.execute(
+      `INSERT OR IGNORE INTO ext_mail_reader_processed
+       (id, account_id, user_id, message_id, uid, processed_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [processedId, accountId, userId, messageId, uid, now]
+    )
+
+    // Check if our row was inserted by looking for our specific ID
+    const rows = await this.db.execute<{ id: string }>(
+      `SELECT id FROM ext_mail_reader_processed
+       WHERE account_id = ? AND user_id = ? AND message_id = ? AND id = ?`,
+      [accountId, userId, messageId, processedId]
+    )
+
+    return rows.length > 0
+  }
+
+  /**
    * Gets the highest processed UID for an account.
    * @param accountId Account ID
    * @returns Highest UID or 0

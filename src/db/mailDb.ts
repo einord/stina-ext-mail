@@ -123,6 +123,12 @@ export class MailDb {
        ON ext_mail_reader_processed(message_id)`
     )
 
+    // Unique constraint for atomic duplicate prevention
+    await this.db.execute(
+      `CREATE UNIQUE INDEX IF NOT EXISTS ext_mail_reader_processed_unique_idx
+       ON ext_mail_reader_processed(account_id, user_id, message_id)`
+    )
+
     await this.db.execute(
       `CREATE INDEX IF NOT EXISTS ext_mail_reader_settings_user_idx
        ON ext_mail_reader_settings(user_id)`
