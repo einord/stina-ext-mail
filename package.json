@@ -1,6 +1,6 @@
 {
   "name": "stina-ext-mail",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Mail extension for Stina - read incoming emails from multiple providers",
   "type": "module",
   "main": "dist/index.js",
