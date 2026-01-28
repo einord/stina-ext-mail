@@ -28,7 +28,7 @@ import {
   createGetSettingsTool,
   createUpdateSettingsTool,
 } from './tools/index.js'
-import type { EditState, EditFormState, AccountDisplayData, MailProvider } from './types.js'
+import type { EditState, EditFormState, AccountDisplayData, MailProvider, MailAccount, MailCredentials } from './types.js'
 import {
   initiateGmailAuth,
   pollGmailToken,
@@ -318,8 +318,52 @@ function activate(context: ExtensionContext): Disposable {
 
   // Set up email polling scheduler
   const POLL_INTERVAL_MS = 5 * 60 * 1000 // Poll every 5 minutes (backup for IDLE)
+  const TOKEN_REFRESH_INTERVAL_MS = 30 * 60 * 1000 // Check token refresh every 30 minutes
   const scheduledUsers = new Set<string>()
   const workerDisposables = new Map<string, Disposable>()
+
+  /**
+   * Ensures credentials are fresh, refreshing OAuth2 tokens if needed.
+   * Updates the database with new credentials if refreshed.
+   * @param account The mail account
+   * @param userRepo User repository for saving credentials
+   * @returns Fresh credentials
+   */
+  const ensureFreshCredentials = async (
+    account: MailAccount,
+    userRepo: ReturnType<typeof repository.withUser>
+  ): Promise<MailCredentials> => {
+    const provider = providers.getRequired(account.provider)
+
+    // Check if provider supports token refresh
+    if (!provider.needsRefresh || !provider.refreshCredentials) {
+      return account.credentials
+    }
+
+    // Check if refresh is needed
+    if (!provider.needsRefresh(account.credentials)) {
+      return account.credentials
+    }
+
+    // Refresh the credentials
+    context.log.info('Refreshing OAuth2 token', { accountId: account.id })
+    const newCredentials = await provider.refreshCredentials(account.credentials)
+
+    // Save to database
+    if (newCredentials.type === 'oauth2') {
+      await userRepo.accounts.upsert(account.id, {
+        provider: account.provider,
+        name: account.name,
+        email: account.email,
+        accessToken: newCredentials.accessToken,
+        refreshToken: newCredentials.refreshToken,
+        expiresAt: newCredentials.expiresAt,
+      })
+      context.log.info('OAuth2 token refreshed and saved', { accountId: account.id })
+    }
+
+    return newCredentials
+  }
 
   // Start a background worker for IMAP IDLE monitoring per user
   const startIdleWorkerForUser = async (userId: string): Promise<void> => {
@@ -355,14 +399,23 @@ function activate(context: ExtensionContext): Disposable {
             await handleNewEmail(accountId, userId)
           })
 
-          // Start IDLE for each account
+          // Track active connections for token refresh
+          const activeConnections = new Map<string, { account: MailAccount; client: ImapClient }>()
+
+          // Start IDLE for each account with fresh credentials
           for (const account of enabledAccounts) {
             try {
+              // Ensure credentials are fresh before connecting
+              const freshCredentials = await ensureFreshCredentials(account, userRepo)
+              const accountWithFreshCreds = { ...account, credentials: freshCredentials }
+
               const provider = providers.getRequired(account.provider)
-              const imapConfig = provider.getImapConfig(account, account.credentials)
+              const imapConfig = provider.getImapConfig(accountWithFreshCreds, freshCredentials)
               const client = new ImapClient(imapConfig)
               await client.connect()
               await localIdleManager.startIdle(account.id, client, ctx.signal)
+
+              activeConnections.set(account.id, { account: accountWithFreshCreds, client })
               ctx.log.info('IDLE started for account', { accountId: account.id })
             } catch (error) {
               ctx.log.warn('Failed to start IDLE for account', {
@@ -372,7 +425,67 @@ function activate(context: ExtensionContext): Disposable {
             }
           }
 
-          ctx.reportHealth(`IDLE monitoring ${enabledAccounts.length} account(s)`)
+          ctx.reportHealth(`IDLE monitoring ${activeConnections.size} account(s)`)
+
+          // Periodic token refresh loop (runs in parallel with IDLE)
+          const tokenRefreshLoop = async (): Promise<void> => {
+            while (!ctx.signal.aborted) {
+              // Wait for next refresh check interval
+              await new Promise<void>((resolve) => {
+                const timeout = setTimeout(resolve, TOKEN_REFRESH_INTERVAL_MS)
+                ctx.signal.addEventListener('abort', () => {
+                  clearTimeout(timeout)
+                  resolve()
+                }, { once: true })
+              })
+
+              if (ctx.signal.aborted) break
+
+              // Check and refresh tokens for all active connections
+              for (const [accountId, { account }] of activeConnections) {
+                try {
+                  const provider = providers.getRequired(account.provider)
+
+                  // Skip if provider doesn't support token refresh
+                  if (!provider.needsRefresh || !provider.refreshCredentials) continue
+
+                  // Get fresh account data from database
+                  const currentAccount = await userRepo.accounts.get(accountId)
+                  if (!currentAccount || !currentAccount.enabled) continue
+
+                  // Check if refresh is needed (refresh 10 minutes before expiry)
+                  if (provider.needsRefresh(currentAccount.credentials)) {
+                    ctx.log.info('Proactively refreshing OAuth2 token', { accountId })
+
+                    const newCredentials = await ensureFreshCredentials(currentAccount, userRepo)
+
+                    // Reconnect with fresh credentials
+                    await localIdleManager.stopIdle(accountId)
+
+                    const imapConfig = provider.getImapConfig(currentAccount, newCredentials)
+                    const newClient = new ImapClient(imapConfig)
+                    await newClient.connect()
+                    await localIdleManager.startIdle(accountId, newClient, ctx.signal)
+
+                    activeConnections.set(accountId, {
+                      account: { ...currentAccount, credentials: newCredentials },
+                      client: newClient,
+                    })
+
+                    ctx.log.info('IDLE reconnected with fresh token', { accountId })
+                  }
+                } catch (error) {
+                  ctx.log.warn('Failed to refresh token for account', {
+                    accountId,
+                    error: error instanceof Error ? error.message : String(error),
+                  })
+                }
+              }
+            }
+          }
+
+          // Start token refresh loop in background
+          void tokenRefreshLoop()
 
           // Wait until the signal is aborted
           await new Promise<void>((resolve) => {
