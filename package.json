@@ -29,23 +29,23 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",
-    "@stina/extension-api": "^0.21.0",
+    "@stina/extension-api": "^0.22.0",
     "@types/archiver": "^7.0.0",
     "@types/html-to-text": "^9.0.4",
-    "@types/mailparser": "^3.4.4",
-    "@typescript-eslint/eslint-plugin": "^8.53.1",
-    "@typescript-eslint/parser": "^8.53.1",
+    "@types/mailparser": "^3.4.6",
+    "@typescript-eslint/eslint-plugin": "^8.54.0",
+    "@typescript-eslint/parser": "^8.54.0",
     "archiver": "^7.0.1",
     "eslint": "^9.39.2",
     "eslint-config-prettier": "^10.1.8",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.53.1"
+    "typescript-eslint": "^8.54.0"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.1",
     "html-to-text": "^9.0.5",
-    "imapflow": "^1.0.171",
-    "mailparser": "^3.7.1"
+    "imapflow": "^1.2.7",
+    "mailparser": "^3.9.1"
   }
 }
