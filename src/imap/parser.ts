@@ -181,23 +181,66 @@ function generateSnippet(body: string): string {
 }
 
 /**
- * Formats an email for display in Stina's instruction.
- * @param email Email data
- * @param accountName Display name of the account
- * @param instruction Global instruction
- * @returns Formatted instruction message
+ * Localized text for email formatting
  */
-export function formatEmailInstruction(
+const i18n: Record<string, {
+  instruction: string
+  justReceivedMail: string
+  content: string
+  from: string
+  to: string
+  subject: string
+  message: string
+}> = {
+  sv: {
+    instruction: 'INSTRUKTION',
+    justReceivedMail: 'har precis nu fått mail till kontot',
+    content: 'INNEHÅLL',
+    from: 'Från',
+    to: 'Till',
+    subject: 'Ämne',
+    message: 'Meddelande',
+  },
+  en: {
+    instruction: 'INSTRUCTION',
+    justReceivedMail: 'has just received an email to the account',
+    content: 'CONTENT',
+    from: 'From',
+    to: 'To',
+    subject: 'Subject',
+    message: 'Message',
+  },
+}
+
+/**
+ * Options for formatting an email instruction
+ */
+export interface FormatEmailOptions {
   email: {
     from: { name?: string; address: string }
     to: { name?: string; address: string }[]
     subject: string
     date: string
     body: string
-  },
-  accountName: string,
+  }
+  accountName: string
   instruction: string
-): string {
+  userName?: string
+  language?: string
+}
+
+/**
+ * Formats an email for display in Stina's instruction.
+ * @param options Formatting options including email data, account info, and localization
+ * @returns Formatted instruction message
+ */
+export function formatEmailInstruction(options: FormatEmailOptions): string {
+  const { email, accountName, instruction, userName, language } = options
+
+  // Determine language (default to Swedish)
+  const lang = language?.toLowerCase().startsWith('en') ? 'en' : 'sv'
+  const t = i18n[lang]
+
   const fromDisplay = email.from.name
     ? `${email.from.name} <${email.from.address}>`
     : email.from.address
@@ -206,22 +249,27 @@ export function formatEmailInstruction(
     .map((addr) => (addr.name ? `${addr.name} <${addr.address}>` : addr.address))
     .join(', ')
 
-  const parts = [
-    '[New Email]',
-    `From: ${fromDisplay}`,
-    `To: ${toDisplay} (${accountName})`,
-    `Subject: ${email.subject}`,
-    `Date: ${new Date(email.date).toLocaleString()}`,
-    'Email content:',
-    '---',
-    email.body,
-    '---',
-    ''
-  ]
+  const parts: string[] = []
+
+  // Instruction section
+  parts.push(`[${t.instruction}]`)
+
+  const userDisplay = userName || 'User'
+  parts.push(`${userDisplay} ${t.justReceivedMail} ${accountName}.`)
 
   if (instruction) {
     parts.push(instruction)
   }
+
+  parts.push('')
+
+  // Content section
+  parts.push(`[${t.content}]`)
+  parts.push(`${t.from}: ${fromDisplay}`)
+  parts.push(`${t.to}: ${toDisplay}`)
+  parts.push(`${t.subject}: ${email.subject}`)
+  parts.push(`${t.message}:`)
+  parts.push(email.body)
 
   return parts.join('\n')
 }

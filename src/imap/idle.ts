@@ -53,7 +53,7 @@ export class IdleManager {
    * @param accountId Account ID
    * @param client Connected IMAP client
    */
-  async startIdle(accountId: string, client: ImapClient): Promise<void> {
+  async startIdle(accountId: string, client: ImapClient, signal?: AbortSignal): Promise<void> {
     // Stop any existing connection for this account
     await this.stopIdle(accountId)
 
@@ -66,6 +66,13 @@ export class IdleManager {
     }
 
     this.connections.set(accountId, state)
+
+    // If an AbortSignal is provided, stop IDLE when it aborts
+    if (signal) {
+      signal.addEventListener('abort', () => {
+        void this.stopIdle(accountId)
+      }, { once: true })
+    }
 
     // Start the IDLE loop
     await this.enterIdleLoop(state)

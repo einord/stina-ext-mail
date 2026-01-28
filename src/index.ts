@@ -9,11 +9,14 @@ import {
   type ExtensionContext,
   type ExecutionContext,
   type Disposable,
+  type BackgroundWorkersAPI,
+  type BackgroundTaskContext,
 } from '@stina/extension-api/runtime'
 import { MailRepository, type DatabaseAPI } from './db/repository.js'
 import { ProviderRegistry, getProviderLabel, type ProviderConfig } from './providers/index.js'
 import { IdleManager } from './imap/idle.js'
-import { formatEmailInstruction } from './imap/parser.js'
+import { ImapClient } from './imap/client.js'
+import { formatEmailInstruction, type FormatEmailOptions } from './imap/parser.js'
 import {
   createListAccountsTool,
   createAddAccountTool,
@@ -70,6 +73,17 @@ type SchedulerAPI = {
   ) => Disposable
 }
 
+type UserProfile = {
+  firstName?: string
+  nickname?: string
+  language?: string
+  timezone?: string
+}
+
+type UserAPI = {
+  getProfile: (userId?: string) => Promise<UserProfile>
+}
+
 // In-memory edit state (per user)
 const editStates = new Map<string, EditState>()
 
@@ -117,6 +131,8 @@ function activate(context: ExtensionContext): Disposable {
   const settingsApi = (context as ExtensionContext & { settings?: SettingsApi }).settings
   const chat = (context as ExtensionContext & { chat?: ChatAPI }).chat
   const scheduler = (context as ExtensionContext & { scheduler?: SchedulerAPI }).scheduler
+  const backgroundWorkers = (context as ExtensionContext & { backgroundWorkers?: BackgroundWorkersAPI }).backgroundWorkers
+  const user = (context as ExtensionContext & { user?: UserAPI }).user
 
   // Event emitters
   const emitAccountChanged = () => {
@@ -219,6 +235,18 @@ function activate(context: ExtensionContext): Disposable {
         return
       }
 
+      // Fetch user profile for personalization
+      let userProfile: UserProfile | undefined
+      if (user) {
+        try {
+          userProfile = await user.getProfile(userId)
+        } catch (profileError) {
+          context.log.debug('Could not fetch user profile', {
+            error: profileError instanceof Error ? profileError.message : String(profileError),
+          })
+        }
+      }
+
       const emails = await provider.fetchNewEmails(account, account.credentials, sinceUid)
 
       for (const email of emails) {
@@ -226,18 +254,21 @@ function activate(context: ExtensionContext): Disposable {
         const isProcessed = await userRepo.processed.isProcessed(accountId, email.messageId)
         if (isProcessed) continue
 
-        // Format instruction for Stina
-        const instruction = formatEmailInstruction(
-          {
+        // Format instruction for Stina with user info
+        const formatOptions: FormatEmailOptions = {
+          email: {
             from: email.from,
             to: email.to,
             subject: email.subject,
             date: email.date,
             body: email.body,
           },
-          account.name,
-          settings.instruction
-        )
+          accountName: account.name,
+          instruction: settings.instruction,
+          userName: userProfile?.nickname || userProfile?.firstName,
+          language: userProfile?.language,
+        }
+        const instruction = formatEmailInstruction(formatOptions)
 
         // Send to Stina
         await chat.appendInstruction({ text: instruction, userId })
@@ -281,8 +312,87 @@ function activate(context: ExtensionContext): Disposable {
   }
 
   // Set up email polling scheduler
-  const POLL_INTERVAL_MS = 60 * 1000 // Poll every minute (in milliseconds)
+  const POLL_INTERVAL_MS = 5 * 60 * 1000 // Poll every 5 minutes (backup for IDLE)
   const scheduledUsers = new Set<string>()
+  const workerDisposables = new Map<string, Disposable>()
+
+  // Start a background worker for IMAP IDLE monitoring per user
+  const startIdleWorkerForUser = async (userId: string): Promise<void> => {
+    if (!backgroundWorkers) return
+
+    const workerId = `mail-idle-${userId}`
+
+    // Don't start if already running
+    if (workerDisposables.has(workerId)) return
+
+    try {
+      const disposable = await backgroundWorkers.start(
+        {
+          id: workerId,
+          name: 'Mail IDLE Monitor',
+          userId,
+          restartPolicy: { type: 'on-failure', maxRestarts: 0 },
+        },
+        async (ctx: BackgroundTaskContext) => {
+          ctx.reportHealth('Starting IDLE connections...')
+
+          const userRepo = repository.withUser(userId)
+          const accounts = await userRepo.accounts.list()
+          const enabledAccounts = accounts.filter((a) => a.enabled)
+
+          if (enabledAccounts.length === 0) {
+            ctx.reportHealth('No enabled accounts')
+            return
+          }
+
+          const localIdleManager = new IdleManager(async (accountId) => {
+            ctx.log.info('New mail detected via IDLE', { accountId })
+            await handleNewEmail(accountId, userId)
+          })
+
+          // Start IDLE for each account
+          for (const account of enabledAccounts) {
+            try {
+              const provider = providers.getRequired(account.provider)
+              const imapConfig = provider.getImapConfig(account, account.credentials)
+              const client = new ImapClient(imapConfig)
+              await client.connect()
+              await localIdleManager.startIdle(account.id, client, ctx.signal)
+              ctx.log.info('IDLE started for account', { accountId: account.id })
+            } catch (error) {
+              ctx.log.warn('Failed to start IDLE for account', {
+                accountId: account.id,
+                error: error instanceof Error ? error.message : String(error),
+              })
+            }
+          }
+
+          ctx.reportHealth(`IDLE monitoring ${enabledAccounts.length} account(s)`)
+
+          // Wait until the signal is aborted
+          await new Promise<void>((resolve) => {
+            if (ctx.signal.aborted) {
+              resolve()
+              return
+            }
+            ctx.signal.addEventListener('abort', () => resolve(), { once: true })
+          })
+
+          // Graceful shutdown
+          ctx.reportHealth('Shutting down IDLE connections...')
+          await localIdleManager.stopAll()
+        }
+      )
+
+      workerDisposables.set(workerId, disposable)
+      context.log.info('Background IDLE worker started', { userId })
+    } catch (error) {
+      context.log.warn('Failed to start IDLE worker', {
+        userId,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
 
   const schedulePollingForUser = async (userId: string): Promise<void> => {
     if (!scheduler || scheduledUsers.has(userId)) return
@@ -621,7 +731,8 @@ function activate(context: ExtensionContext): Disposable {
               emitEditChanged()
               emitAccountChanged()
 
-              // Start polling for this user if not already scheduled
+              // Start IDLE worker and polling for this user
+              void startIdleWorkerForUser(execContext.userId)
               void schedulePollingForUser(execContext.userId)
 
               return { success: true }
@@ -858,6 +969,7 @@ function activate(context: ExtensionContext): Disposable {
       context.log.info('Starting email polling for existing users', { userCount: userIds.length })
 
       for (const userId of userIds) {
+        await startIdleWorkerForUser(userId)
         await schedulePollingForUser(userId)
       }
     } catch (error) {
@@ -874,6 +986,11 @@ function activate(context: ExtensionContext): Disposable {
     dispose: () => {
       void idleManager.stopAll()
       schedulerDisposable?.dispose()
+      // Stop all background workers
+      for (const [, workerDisposable] of workerDisposables) {
+        workerDisposable.dispose()
+      }
+      workerDisposables.clear()
       // Cancel all scheduled jobs
       if (scheduler) {
         for (const userId of scheduledUsers) {
