@@ -2,7 +2,7 @@
   "$schema": "https://stina.app/schemas/extension-manifest.json",
   "id": "mail-reader",
   "name": "Mail Reader",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Read incoming emails from iCloud, Gmail, Outlook, or generic IMAP accounts.",
   "type": "tools",
   "author": {

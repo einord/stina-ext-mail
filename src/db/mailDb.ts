@@ -123,6 +123,16 @@ export class MailDb {
        ON ext_mail_reader_processed(message_id)`
     )
 
+    // Clean up any existing duplicates before creating unique constraint
+    // Keep only the first processed entry for each (account_id, user_id, message_id)
+    await this.db.execute(
+      `DELETE FROM ext_mail_reader_processed
+       WHERE id NOT IN (
+         SELECT MIN(id) FROM ext_mail_reader_processed
+         GROUP BY account_id, user_id, message_id
+       )`
+    )
+
     // Unique constraint for atomic duplicate prevention
     await this.db.execute(
       `CREATE UNIQUE INDEX IF NOT EXISTS ext_mail_reader_processed_unique_idx
