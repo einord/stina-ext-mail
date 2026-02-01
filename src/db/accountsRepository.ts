@@ -1,7 +1,10 @@
 /**
  * Accounts Repository for Mail Reader extension
+ *
+ * Uses the Extension Storage API for document storage and SecretsAPI for credentials.
  */
 
+import type { StorageAPI, SecretsAPI } from '@stina/extension-api/runtime'
 import type {
   MailAccount,
   MailAccountInput,
@@ -13,7 +16,13 @@ import type {
   MailProvider,
   ImapSecurity,
 } from '../types.js'
-import type { MailDb } from './mailDb.js'
+
+/** Collection names */
+const COLLECTIONS = {
+  accounts: 'accounts',
+  settings: 'settings',
+  processed: 'processed',
+} as const
 
 /**
  * Generates a unique ID with the given prefix.
@@ -27,87 +36,94 @@ function generateId(prefix: string): string {
 }
 
 /**
- * Simple encryption for credentials (placeholder - in production use proper encryption)
- * @param data Data to encrypt
- * @returns Encrypted string
+ * Gets the secret key for storing account credentials.
+ * @param accountId The account ID
+ * @returns Secret key string
  */
-function encryptCredentials(data: MailCredentials): string {
-  // In production, use proper encryption with a secret key
-  return Buffer.from(JSON.stringify(data)).toString('base64')
+function getCredentialsKey(accountId: string): string {
+  return `account-${accountId}-credentials`
 }
 
 /**
- * Simple decryption for credentials (placeholder - in production use proper encryption)
- * @param encrypted Encrypted string
- * @returns Decrypted credentials
+ * Document type for account stored in storage (without credentials).
  */
-function decryptCredentials(encrypted: string): MailCredentials {
-  // In production, use proper decryption with a secret key
-  return JSON.parse(Buffer.from(encrypted, 'base64').toString('utf-8')) as MailCredentials
+interface AccountDocument {
+  id: string
+  provider: MailProvider
+  name: string
+  email: string
+  imapHost: string | null
+  imapPort: number | null
+  imapSecurity: ImapSecurity | null
+  authType: AuthType
+  enabled: boolean
+  lastSyncAt: string | null
+  lastError: string | null
+  createdAt: string
+  updatedAt: string
 }
 
-export class AccountsRepository {
-  private readonly db: MailDb
+/**
+ * Document type for settings stored in storage.
+ */
+interface SettingsDocument {
+  id: string
+  instruction: string
+  createdAt: string
+  updatedAt: string
+}
 
-  constructor(db: MailDb) {
-    this.db = db
+/**
+ * Document type for processed emails stored in storage.
+ */
+interface ProcessedDocument {
+  id: string
+  accountId: string
+  messageId: string
+  uid: number
+  processedAt: string
+}
+
+/**
+ * Repository for managing mail accounts.
+ * Uses userStorage for documents and userSecrets for credentials.
+ */
+export class AccountsRepository {
+  private readonly storage: StorageAPI
+  private readonly secrets: SecretsAPI
+
+  /**
+   * Creates an AccountsRepository instance.
+   * @param storage User-scoped storage API
+   * @param secrets User-scoped secrets API
+   */
+  constructor(storage: StorageAPI, secrets: SecretsAPI) {
+    this.storage = storage
+    this.secrets = secrets
   }
 
   /**
    * Lists all mail accounts for the current user.
    * @param options List options
-   * @returns Array of mail accounts
+   * @returns Array of mail accounts with credentials
    */
   async list(options: ListAccountsOptions = {}): Promise<MailAccount[]> {
-    await this.db.initialize()
-
     const { limit = 50, offset = 0 } = options
-    const userId = this.db.getUserId()
 
-    const rows = await this.db.execute<{
-      id: string
-      user_id: string
-      provider: string
-      name: string
-      email: string
-      imap_host: string | null
-      imap_port: number | null
-      imap_security: string | null
-      auth_type: string
-      credentials: string
-      enabled: number
-      last_sync_at: string | null
-      last_error: string | null
-      created_at: string
-      updated_at: string
-    }>(
-      `SELECT id, user_id, provider, name, email, imap_host, imap_port, imap_security,
-              auth_type, credentials, enabled, last_sync_at, last_error,
-              created_at, updated_at
-       FROM ext_mail_reader_accounts
-       WHERE user_id = ?
-       ORDER BY name ASC
-       LIMIT ? OFFSET ?`,
-      [userId, limit, offset]
+    const docs = await this.storage.find<AccountDocument>(
+      COLLECTIONS.accounts,
+      {},
+      { sort: { name: 'asc' }, limit, offset }
     )
 
-    return rows.map((row) => ({
-      id: row.id,
-      userId: row.user_id,
-      provider: row.provider as MailProvider,
-      name: row.name,
-      email: row.email,
-      imapHost: row.imap_host,
-      imapPort: row.imap_port,
-      imapSecurity: row.imap_security as ImapSecurity | null,
-      authType: row.auth_type as AuthType,
-      credentials: decryptCredentials(row.credentials),
-      enabled: Boolean(row.enabled),
-      lastSyncAt: row.last_sync_at,
-      lastError: row.last_error,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    }))
+    // Load credentials for each account
+    const accounts: MailAccount[] = []
+    for (const doc of docs) {
+      const credentials = await this.loadCredentials(doc.id, doc.authType)
+      accounts.push(this.toMailAccount(doc, credentials))
+    }
+
+    return accounts
   }
 
   /**
@@ -116,54 +132,11 @@ export class AccountsRepository {
    * @returns Mail account or null
    */
   async get(id: string): Promise<MailAccount | null> {
-    await this.db.initialize()
+    const doc = await this.storage.get<AccountDocument>(COLLECTIONS.accounts, id)
+    if (!doc) return null
 
-    const userId = this.db.getUserId()
-    const rows = await this.db.execute<{
-      id: string
-      user_id: string
-      provider: string
-      name: string
-      email: string
-      imap_host: string | null
-      imap_port: number | null
-      imap_security: string | null
-      auth_type: string
-      credentials: string
-      enabled: number
-      last_sync_at: string | null
-      last_error: string | null
-      created_at: string
-      updated_at: string
-    }>(
-      `SELECT id, user_id, provider, name, email, imap_host, imap_port, imap_security,
-              auth_type, credentials, enabled, last_sync_at, last_error,
-              created_at, updated_at
-       FROM ext_mail_reader_accounts
-       WHERE id = ? AND user_id = ?`,
-      [id, userId]
-    )
-
-    const row = rows[0]
-    if (!row) return null
-
-    return {
-      id: row.id,
-      userId: row.user_id,
-      provider: row.provider as MailProvider,
-      name: row.name,
-      email: row.email,
-      imapHost: row.imap_host,
-      imapPort: row.imap_port,
-      imapSecurity: row.imap_security as ImapSecurity | null,
-      authType: row.auth_type as AuthType,
-      credentials: decryptCredentials(row.credentials),
-      enabled: Boolean(row.enabled),
-      lastSyncAt: row.last_sync_at,
-      lastError: row.last_error,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    }
+    const credentials = await this.loadCredentials(id, doc.authType)
+    return this.toMailAccount(doc, credentials)
   }
 
   /**
@@ -173,10 +146,7 @@ export class AccountsRepository {
    * @returns Created/updated account
    */
   async upsert(id: string | undefined, input: MailAccountInput): Promise<MailAccount> {
-    await this.db.initialize()
-
     const now = new Date().toISOString()
-    const userId = this.db.getUserId()
     const accountId = id ?? generateId('acc')
     const existing = id ? await this.get(id) : null
 
@@ -217,44 +187,30 @@ export class AccountsRepository {
         input.password || input.accessToken ? credentials : existing.credentials
       const finalAuthType = input.password || input.accessToken ? authType : existing.authType
 
-      await this.db.execute(
-        `UPDATE ext_mail_reader_accounts
-         SET name = ?, email = ?, provider = ?, imap_host = ?, imap_port = ?, imap_security = ?,
-             auth_type = ?, credentials = ?, enabled = ?, updated_at = ?
-         WHERE id = ? AND user_id = ?`,
-        [
-          name,
-          email,
-          provider,
-          imapHost,
-          imapPort,
-          imapSecurity,
-          finalAuthType,
-          encryptCredentials(finalCredentials),
-          enabled ? 1 : 0,
-          now,
-          accountId,
-          userId,
-        ]
-      )
-
-      return {
+      const doc: AccountDocument = {
         id: accountId,
-        userId,
         provider,
         name,
         email,
-        imapHost,
-        imapPort,
-        imapSecurity,
+        imapHost: imapHost ?? null,
+        imapPort: imapPort ?? null,
+        imapSecurity: imapSecurity ?? null,
         authType: finalAuthType,
-        credentials: finalCredentials,
         enabled,
         lastSyncAt: existing.lastSyncAt,
         lastError: existing.lastError,
         createdAt: existing.createdAt,
         updatedAt: now,
       }
+
+      await this.storage.put(COLLECTIONS.accounts, accountId, doc)
+
+      // Save credentials to secrets if updated
+      if (input.password || input.accessToken) {
+        await this.saveCredentials(accountId, finalCredentials)
+      }
+
+      return this.toMailAccount(doc, finalCredentials)
     }
 
     // Create new account
@@ -262,31 +218,8 @@ export class AccountsRepository {
       throw new Error('Name, email, and provider are required for new accounts')
     }
 
-    await this.db.execute(
-      `INSERT INTO ext_mail_reader_accounts
-       (id, user_id, provider, name, email, imap_host, imap_port, imap_security,
-        auth_type, credentials, enabled, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        accountId,
-        userId,
-        input.provider,
-        input.name,
-        input.email,
-        input.imapHost ?? null,
-        input.imapPort ?? null,
-        input.imapSecurity ?? null,
-        authType,
-        encryptCredentials(credentials),
-        input.enabled !== false ? 1 : 0,
-        now,
-        now,
-      ]
-    )
-
-    return {
+    const doc: AccountDocument = {
       id: accountId,
-      userId,
       provider: input.provider,
       name: input.name,
       email: input.email,
@@ -294,42 +227,36 @@ export class AccountsRepository {
       imapPort: input.imapPort ?? null,
       imapSecurity: input.imapSecurity ?? null,
       authType,
-      credentials,
       enabled: input.enabled !== false,
       lastSyncAt: null,
       lastError: null,
       createdAt: now,
       updatedAt: now,
     }
+
+    await this.storage.put(COLLECTIONS.accounts, accountId, doc)
+    await this.saveCredentials(accountId, credentials)
+
+    return this.toMailAccount(doc, credentials)
   }
 
   /**
-   * Deletes a mail account.
+   * Deletes a mail account and its associated credentials.
    * @param id Account ID
    * @returns True if deleted
    */
   async delete(id: string): Promise<boolean> {
-    await this.db.initialize()
-
-    const userId = this.db.getUserId()
-    const rows = await this.db.execute<{ id: string }>(
-      `SELECT id FROM ext_mail_reader_accounts WHERE id = ? AND user_id = ?`,
-      [id, userId]
-    )
-
-    if (rows.length === 0) return false
+    const doc = await this.storage.get<AccountDocument>(COLLECTIONS.accounts, id)
+    if (!doc) return false
 
     // Delete processed emails for this account
-    await this.db.execute(
-      `DELETE FROM ext_mail_reader_processed WHERE account_id = ? AND user_id = ?`,
-      [id, userId]
-    )
+    await this.storage.deleteMany(COLLECTIONS.processed, { accountId: id })
 
-    // Delete the account
-    await this.db.execute(
-      `DELETE FROM ext_mail_reader_accounts WHERE id = ? AND user_id = ?`,
-      [id, userId]
-    )
+    // Delete credentials from secrets
+    await this.secrets.delete(getCredentialsKey(id))
+
+    // Delete the account document
+    await this.storage.delete(COLLECTIONS.accounts, id)
 
     return true
   }
@@ -340,17 +267,18 @@ export class AccountsRepository {
    * @param error Error message if sync failed, null if successful
    */
   async updateSyncStatus(id: string, error: string | null): Promise<void> {
-    await this.db.initialize()
+    const doc = await this.storage.get<AccountDocument>(COLLECTIONS.accounts, id)
+    if (!doc) return
 
     const now = new Date().toISOString()
-    const userId = this.db.getUserId()
+    const updatedDoc: AccountDocument = {
+      ...doc,
+      lastSyncAt: now,
+      lastError: error,
+      updatedAt: now,
+    }
 
-    await this.db.execute(
-      `UPDATE ext_mail_reader_accounts
-       SET last_sync_at = ?, last_error = ?, updated_at = ?
-       WHERE id = ? AND user_id = ?`,
-      [now, error, now, id, userId]
-    )
+    await this.storage.put(COLLECTIONS.accounts, id, updatedDoc)
   }
 
   /**
@@ -359,75 +287,128 @@ export class AccountsRepository {
    * @param credentials New OAuth2 credentials
    */
   async updateCredentials(id: string, credentials: MailCredentials): Promise<void> {
-    await this.db.initialize()
+    const doc = await this.storage.get<AccountDocument>(COLLECTIONS.accounts, id)
+    if (!doc) return
 
     const now = new Date().toISOString()
-    const userId = this.db.getUserId()
+    const updatedDoc: AccountDocument = {
+      ...doc,
+      updatedAt: now,
+    }
 
-    await this.db.execute(
-      `UPDATE ext_mail_reader_accounts
-       SET credentials = ?, updated_at = ?
-       WHERE id = ? AND user_id = ?`,
-      [encryptCredentials(credentials), now, id, userId]
-    )
+    await this.storage.put(COLLECTIONS.accounts, id, updatedDoc)
+    await this.saveCredentials(id, credentials)
+  }
+
+  /**
+   * Saves credentials to the secrets store.
+   * @param accountId Account ID
+   * @param credentials Credentials to save
+   */
+  private async saveCredentials(accountId: string, credentials: MailCredentials): Promise<void> {
+    const key = getCredentialsKey(accountId)
+    await this.secrets.set(key, JSON.stringify(credentials))
+  }
+
+  /**
+   * Loads credentials from the secrets store.
+   * @param accountId Account ID
+   * @param authType The auth type to determine default credentials
+   * @returns Credentials or default empty credentials
+   */
+  private async loadCredentials(accountId: string, authType: AuthType): Promise<MailCredentials> {
+    const key = getCredentialsKey(accountId)
+    const stored = await this.secrets.get(key)
+
+    if (stored) {
+      return JSON.parse(stored) as MailCredentials
+    }
+
+    // Return default empty credentials
+    if (authType === 'oauth2') {
+      return { type: 'oauth2', accessToken: '', refreshToken: '', expiresAt: '' }
+    }
+    return { type: 'password', username: '', password: '' }
+  }
+
+  /**
+   * Converts an account document and credentials to a MailAccount.
+   * @param doc Account document
+   * @param credentials Account credentials
+   * @returns MailAccount object
+   */
+  private toMailAccount(doc: AccountDocument, credentials: MailCredentials): MailAccount {
+    return {
+      id: doc.id,
+      userId: '', // User ID is implicit - data is user-scoped
+      provider: doc.provider,
+      name: doc.name,
+      email: doc.email,
+      imapHost: doc.imapHost,
+      imapPort: doc.imapPort,
+      imapSecurity: doc.imapSecurity,
+      authType: doc.authType,
+      credentials,
+      enabled: doc.enabled,
+      lastSyncAt: doc.lastSyncAt,
+      lastError: doc.lastError,
+      createdAt: doc.createdAt,
+      updatedAt: doc.updatedAt,
+    }
   }
 }
 
+/**
+ * Repository for managing mail settings.
+ */
 export class SettingsRepository {
-  private readonly db: MailDb
+  private readonly storage: StorageAPI
 
-  constructor(db: MailDb) {
-    this.db = db
+  /**
+   * Creates a SettingsRepository instance.
+   * @param storage User-scoped storage API
+   */
+  constructor(storage: StorageAPI) {
+    this.storage = storage
   }
 
   /**
    * Gets the mail settings for the current user.
+   * Creates default settings if none exist.
    * @returns Mail settings
    */
   async get(): Promise<MailSettings> {
-    await this.db.initialize()
+    // Use a fixed ID since there's only one settings document per user
+    const settingsId = 'user-settings'
+    const doc = await this.storage.get<SettingsDocument>(COLLECTIONS.settings, settingsId)
 
-    const userId = this.db.getUserId()
-    const rows = await this.db.execute<{
-      id: string
-      user_id: string
-      instruction: string
-      created_at: string
-      updated_at: string
-    }>(
-      `SELECT id, user_id, instruction, created_at, updated_at
-       FROM ext_mail_reader_settings
-       WHERE user_id = ?`,
-      [userId]
-    )
-
-    if (rows.length === 0) {
-      // Create default settings
-      const now = new Date().toISOString()
-      const settingsId = generateId('set')
-
-      await this.db.execute(
-        `INSERT INTO ext_mail_reader_settings (id, user_id, instruction, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?)`,
-        [settingsId, userId, '', now, now]
-      )
-
+    if (doc) {
       return {
-        id: settingsId,
-        userId,
-        instruction: '',
-        createdAt: now,
-        updatedAt: now,
+        id: doc.id,
+        userId: '', // User ID is implicit
+        instruction: doc.instruction,
+        createdAt: doc.createdAt,
+        updatedAt: doc.updatedAt,
       }
     }
 
-    const row = rows[0]
+    // Create default settings
+    const now = new Date().toISOString()
+    const newDoc: SettingsDocument = {
+      id: settingsId,
+      instruction: '',
+      createdAt: now,
+      updatedAt: now,
+    }
+
+    await this.storage.put(COLLECTIONS.settings, settingsId, newDoc)
+
     return {
-      id: row.id,
-      userId: row.user_id,
-      instruction: row.instruction,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
+      id: settingsId,
+      userId: '',
+      instruction: '',
+      createdAt: now,
+      updatedAt: now,
     }
   }
 
@@ -437,20 +418,19 @@ export class SettingsRepository {
    * @returns Updated settings
    */
   async update(update: MailSettingsUpdate): Promise<MailSettings> {
-    await this.db.initialize()
-
     const settings = await this.get()
     const now = new Date().toISOString()
-    const userId = this.db.getUserId()
 
     const instruction = update.instruction ?? settings.instruction
 
-    await this.db.execute(
-      `UPDATE ext_mail_reader_settings
-       SET instruction = ?, updated_at = ?
-       WHERE user_id = ?`,
-      [instruction, now, userId]
-    )
+    const doc: SettingsDocument = {
+      id: settings.id,
+      instruction,
+      createdAt: settings.createdAt,
+      updatedAt: now,
+    }
+
+    await this.storage.put(COLLECTIONS.settings, settings.id, doc)
 
     return {
       ...settings,
@@ -460,11 +440,18 @@ export class SettingsRepository {
   }
 }
 
+/**
+ * Repository for tracking processed emails.
+ */
 export class ProcessedRepository {
-  private readonly db: MailDb
+  private readonly storage: StorageAPI
 
-  constructor(db: MailDb) {
-    this.db = db
+  /**
+   * Creates a ProcessedRepository instance.
+   * @param storage User-scoped storage API
+   */
+  constructor(storage: StorageAPI) {
+    this.storage = storage
   }
 
   /**
@@ -474,16 +461,11 @@ export class ProcessedRepository {
    * @returns True if already processed
    */
   async isProcessed(accountId: string, messageId: string): Promise<boolean> {
-    await this.db.initialize()
-
-    const userId = this.db.getUserId()
-    const rows = await this.db.execute<{ id: string }>(
-      `SELECT id FROM ext_mail_reader_processed
-       WHERE account_id = ? AND message_id = ? AND user_id = ?`,
-      [accountId, messageId, userId]
-    )
-
-    return rows.length > 0
+    const doc = await this.storage.findOne<ProcessedDocument>(COLLECTIONS.processed, {
+      accountId,
+      messageId,
+    })
+    return doc !== undefined
   }
 
   /**
@@ -493,18 +475,25 @@ export class ProcessedRepository {
    * @param uid IMAP UID
    */
   async markProcessed(accountId: string, messageId: string, uid: number): Promise<void> {
-    await this.db.initialize()
+    const existing = await this.storage.findOne<ProcessedDocument>(COLLECTIONS.processed, {
+      accountId,
+      messageId,
+    })
 
-    const userId = this.db.getUserId()
+    if (existing) return // Already processed
+
     const processedId = generateId('prc')
     const now = new Date().toISOString()
 
-    await this.db.execute(
-      `INSERT OR IGNORE INTO ext_mail_reader_processed
-       (id, account_id, user_id, message_id, uid, processed_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [processedId, accountId, userId, messageId, uid, now]
-    )
+    const doc: ProcessedDocument = {
+      id: processedId,
+      accountId,
+      messageId,
+      uid,
+      processedAt: now,
+    }
+
+    await this.storage.put(COLLECTIONS.processed, processedId, doc)
   }
 
   /**
@@ -517,28 +506,27 @@ export class ProcessedRepository {
    * @returns True if this call marked the email, false if already marked
    */
   async tryMarkProcessed(accountId: string, messageId: string, uid: number): Promise<boolean> {
-    await this.db.initialize()
+    // Check if already processed
+    const existing = await this.storage.findOne<ProcessedDocument>(COLLECTIONS.processed, {
+      accountId,
+      messageId,
+    })
 
-    const userId = this.db.getUserId()
+    if (existing) return false
+
     const processedId = generateId('prc')
     const now = new Date().toISOString()
 
-    // INSERT OR IGNORE will silently skip if unique constraint violated
-    await this.db.execute(
-      `INSERT OR IGNORE INTO ext_mail_reader_processed
-       (id, account_id, user_id, message_id, uid, processed_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [processedId, accountId, userId, messageId, uid, now]
-    )
+    const doc: ProcessedDocument = {
+      id: processedId,
+      accountId,
+      messageId,
+      uid,
+      processedAt: now,
+    }
 
-    // Check if our row was inserted by looking for our specific ID
-    const rows = await this.db.execute<{ id: string }>(
-      `SELECT id FROM ext_mail_reader_processed
-       WHERE account_id = ? AND user_id = ? AND message_id = ? AND id = ?`,
-      [accountId, userId, messageId, processedId]
-    )
-
-    return rows.length > 0
+    await this.storage.put(COLLECTIONS.processed, processedId, doc)
+    return true
   }
 
   /**
@@ -547,15 +535,12 @@ export class ProcessedRepository {
    * @returns Highest UID or 0
    */
   async getHighestUid(accountId: string): Promise<number> {
-    await this.db.initialize()
-
-    const userId = this.db.getUserId()
-    const rows = await this.db.execute<{ max_uid: number | null }>(
-      `SELECT MAX(uid) as max_uid FROM ext_mail_reader_processed
-       WHERE account_id = ? AND user_id = ?`,
-      [accountId, userId]
+    const docs = await this.storage.find<ProcessedDocument>(
+      COLLECTIONS.processed,
+      { accountId },
+      { sort: { uid: 'desc' }, limit: 1 }
     )
 
-    return rows[0]?.max_uid ?? 0
+    return docs.length > 0 ? docs[0].uid : 0
   }
 }

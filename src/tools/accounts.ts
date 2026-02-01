@@ -1,18 +1,30 @@
 /**
  * Mail Account Tools
+ *
+ * Tools for managing mail accounts. Each tool creates a repository instance
+ * using the user-scoped storage and secrets from ExecutionContext.
  */
 
 import type { Tool, ToolResult, ExecutionContext } from '@stina/extension-api/runtime'
-import type { MailRepository } from '../db/repository.js'
+import { MailRepository } from '../db/repository.js'
 import type { ProviderRegistry } from '../providers/index.js'
 import type { MailAccountInput } from '../types.js'
 
 /**
+ * Creates a user-scoped repository from the execution context.
+ * @param context Execution context with userStorage and userSecrets
+ * @returns MailRepository instance
+ */
+function createRepository(context: ExecutionContext): MailRepository {
+  return new MailRepository(context.userStorage, context.userSecrets)
+}
+
+/**
  * Creates the mail_accounts_list tool.
- * @param repository Mail repository
+ * Lists all configured mail accounts for the current user.
  * @returns Tool definition
  */
-export function createListAccountsTool(repository: MailRepository): Tool {
+export function createListAccountsTool(): Tool {
   return {
     id: 'mail_accounts_list',
     name: 'List Mail Accounts',
@@ -41,8 +53,8 @@ export function createListAccountsTool(repository: MailRepository): Tool {
       const { limit, offset } = params as { limit?: number; offset?: number }
 
       try {
-        const userRepo = repository.withUser(context.userId)
-        const accounts = await userRepo.accounts.list({
+        const repository = createRepository(context)
+        const accounts = await repository.accounts.list({
           limit,
           offset,
         })
@@ -79,14 +91,11 @@ export function createListAccountsTool(repository: MailRepository): Tool {
 
 /**
  * Creates the mail_accounts_add tool.
- * @param repository Mail repository
- * @param providers Provider registry
+ * Adds a new mail account with the specified provider and credentials.
+ * @param providers Provider registry for validation
  * @returns Tool definition
  */
-export function createAddAccountTool(
-  repository: MailRepository,
-  providers: ProviderRegistry
-): Tool {
+export function createAddAccountTool(providers: ProviderRegistry): Tool {
   return {
     id: 'mail_accounts_add',
     name: 'Add Mail Account',
@@ -155,8 +164,8 @@ export function createAddAccountTool(
           return { success: false, error: `Unknown provider: ${input.provider}` }
         }
 
-        const userRepo = repository.withUser(context.userId)
-        const account = await userRepo.accounts.upsert(undefined, input)
+        const repository = createRepository(context)
+        const account = await repository.accounts.upsert(undefined, input)
 
         return {
           success: true,
@@ -179,10 +188,10 @@ export function createAddAccountTool(
 
 /**
  * Creates the mail_accounts_update tool.
- * @param repository Mail repository
+ * Updates an existing mail account configuration.
  * @returns Tool definition
  */
-export function createUpdateAccountTool(repository: MailRepository): Tool {
+export function createUpdateAccountTool(): Tool {
   return {
     id: 'mail_accounts_update',
     name: 'Update Mail Account',
@@ -249,10 +258,10 @@ export function createUpdateAccountTool(repository: MailRepository): Tool {
       const input = params as unknown as { id: string } & Partial<MailAccountInput>
 
       try {
-        const userRepo = repository.withUser(context.userId)
+        const repository = createRepository(context)
 
         // Get existing account to merge with partial update
-        const existing = await userRepo.accounts.get(input.id)
+        const existing = await repository.accounts.get(input.id)
         if (!existing) {
           return { success: false, error: 'Account not found' }
         }
@@ -271,7 +280,7 @@ export function createUpdateAccountTool(repository: MailRepository): Tool {
           expiresAt: input.expiresAt,
         }
 
-        const account = await userRepo.accounts.upsert(input.id, updateData)
+        const account = await repository.accounts.upsert(input.id, updateData)
 
         return {
           success: true,
@@ -294,12 +303,11 @@ export function createUpdateAccountTool(repository: MailRepository): Tool {
 
 /**
  * Creates the mail_accounts_delete tool.
- * @param repository Mail repository
- * @param onDelete Callback after deletion
+ * Deletes a mail account and stops any active connections.
+ * @param onDelete Optional callback after deletion
  * @returns Tool definition
  */
 export function createDeleteAccountTool(
-  repository: MailRepository,
   onDelete?: (accountId: string, userId: string) => void
 ): Tool {
   return {
@@ -327,8 +335,8 @@ export function createDeleteAccountTool(
       const { id } = params as { id: string }
 
       try {
-        const userRepo = repository.withUser(context.userId)
-        const deleted = await userRepo.accounts.delete(id)
+        const repository = createRepository(context)
+        const deleted = await repository.accounts.delete(id)
 
         if (!deleted) {
           return { success: false, error: 'Account not found' }
@@ -351,14 +359,11 @@ export function createDeleteAccountTool(
 
 /**
  * Creates the mail_accounts_test tool.
- * @param repository Mail repository
+ * Tests the connection to a mail account.
  * @param providers Provider registry
  * @returns Tool definition
  */
-export function createTestAccountTool(
-  repository: MailRepository,
-  providers: ProviderRegistry
-): Tool {
+export function createTestAccountTool(providers: ProviderRegistry): Tool {
   return {
     id: 'mail_accounts_test',
     name: 'Test Mail Account',
@@ -384,8 +389,8 @@ export function createTestAccountTool(
       const { id } = params as { id: string }
 
       try {
-        const userRepo = repository.withUser(context.userId)
-        const account = await userRepo.accounts.get(id)
+        const repository = createRepository(context)
+        const account = await repository.accounts.get(id)
 
         if (!account) {
           return { success: false, error: 'Account not found' }
@@ -395,7 +400,7 @@ export function createTestAccountTool(
         await provider.testConnection(account, account.credentials)
 
         // Update sync status on success
-        await userRepo.accounts.updateSyncStatus(id, null)
+        await repository.accounts.updateSyncStatus(id, null)
 
         return {
           success: true,
@@ -409,8 +414,8 @@ export function createTestAccountTool(
 
         // Try to update sync status with the error
         try {
-          const userRepo = repository.withUser(context.userId)
-          await userRepo.accounts.updateSyncStatus(id, errorMessage)
+          const repository = createRepository(context)
+          await repository.accounts.updateSyncStatus(id, errorMessage)
         } catch {
           // Ignore update errors
         }

@@ -1,17 +1,29 @@
 /**
  * Settings Tools
+ *
+ * Tools for managing mail settings. Each tool creates a repository instance
+ * using the user-scoped storage and secrets from ExecutionContext.
  */
 
 import type { Tool, ToolResult, ExecutionContext } from '@stina/extension-api/runtime'
-import type { MailRepository } from '../db/repository.js'
+import { MailRepository } from '../db/repository.js'
 import type { MailSettingsUpdate } from '../types.js'
 
 /**
- * Creates the settings get tool (for internal use).
- * @param repository Mail repository
+ * Creates a user-scoped repository from the execution context.
+ * @param context Execution context with userStorage and userSecrets
+ * @returns MailRepository instance
+ */
+function createRepository(context: ExecutionContext): MailRepository {
+  return new MailRepository(context.userStorage, context.userSecrets)
+}
+
+/**
+ * Creates the settings get tool.
+ * Gets the current mail settings including the global instruction.
  * @returns Tool definition
  */
-export function createGetSettingsTool(repository: MailRepository): Tool {
+export function createGetSettingsTool(): Tool {
   return {
     id: 'mail_settings_get',
     name: 'Get Mail Settings',
@@ -29,8 +41,8 @@ export function createGetSettingsTool(repository: MailRepository): Tool {
       }
 
       try {
-        const userRepo = repository.withUser(context.userId)
-        const settings = await userRepo.settings.get()
+        const repository = createRepository(context)
+        const settings = await repository.settings.get()
 
         return {
           success: true,
@@ -49,13 +61,12 @@ export function createGetSettingsTool(repository: MailRepository): Tool {
 }
 
 /**
- * Creates the settings update tool (for internal use).
- * @param repository Mail repository
- * @param onUpdate Callback after update
+ * Creates the settings update tool.
+ * Updates the mail settings such as the global instruction for handling emails.
+ * @param onUpdate Optional callback after update
  * @returns Tool definition
  */
 export function createUpdateSettingsTool(
-  repository: MailRepository,
   onUpdate?: (userId: string) => void
 ): Tool {
   return {
@@ -82,8 +93,8 @@ export function createUpdateSettingsTool(
       const input = params as MailSettingsUpdate
 
       try {
-        const userRepo = repository.withUser(context.userId)
-        const settings = await userRepo.settings.update(input)
+        const repository = createRepository(context)
+        const settings = await repository.settings.update(input)
 
         if (onUpdate) {
           onUpdate(context.userId)

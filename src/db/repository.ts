@@ -1,62 +1,101 @@
 /**
  * Mail Repository - Main repository facade
+ *
+ * Provides a unified interface for all mail-related data operations
+ * using the Extension Storage API.
  */
 
+import type { StorageAPI, SecretsAPI } from '@stina/extension-api/runtime'
 import { AccountsRepository, SettingsRepository, ProcessedRepository } from './accountsRepository.js'
-import { MailDb, type DatabaseAPI } from './mailDb.js'
-
-export type { DatabaseAPI } from './mailDb.js'
 
 /**
  * Main repository class for Mail Reader extension.
- * Provides access to all sub-repositories with user scoping.
+ * Provides access to all sub-repositories using the Storage and Secrets APIs.
  */
 export class MailRepository {
-  private readonly db: MailDb
   readonly accounts: AccountsRepository
   readonly settings: SettingsRepository
   readonly processed: ProcessedRepository
 
   /**
    * Creates a MailRepository instance.
-   * @param database The database API or an existing MailDb instance
+   * @param storage User-scoped storage API from ExecutionContext
+   * @param secrets User-scoped secrets API from ExecutionContext
    */
-  constructor(database: DatabaseAPI | MailDb) {
-    this.db = database instanceof MailDb ? database : new MailDb(database)
-    this.accounts = new AccountsRepository(this.db)
-    this.settings = new SettingsRepository(this.db)
-    this.processed = new ProcessedRepository(this.db)
+  constructor(storage: StorageAPI, secrets: SecretsAPI) {
+    this.accounts = new AccountsRepository(storage, secrets)
+    this.settings = new SettingsRepository(storage)
+    this.processed = new ProcessedRepository(storage)
+  }
+}
+
+/**
+ * Factory interface for creating user-scoped repositories.
+ * This is used in activate() for operations that need to list all users.
+ */
+export interface RepositoryFactory {
+  /**
+   * Creates a MailRepository for a specific user using their storage context.
+   * @param userStorage User-scoped storage API
+   * @param userSecrets User-scoped secrets API
+   * @returns MailRepository instance
+   */
+  createRepository(userStorage: StorageAPI, userSecrets: SecretsAPI): MailRepository
+}
+
+/**
+ * Creates a repository factory.
+ * @returns RepositoryFactory instance
+ */
+export function createRepositoryFactory(): RepositoryFactory {
+  return {
+    createRepository(userStorage: StorageAPI, userSecrets: SecretsAPI): MailRepository {
+      return new MailRepository(userStorage, userSecrets)
+    },
+  }
+}
+
+/**
+ * Extension-scoped repository for operations that need to work across users.
+ * Used primarily for getting all user IDs that have enabled accounts.
+ *
+ * Note: This uses extension-scoped storage, not user-scoped storage.
+ * It maintains a separate registry of users with accounts.
+ */
+export class ExtensionRepository {
+  private readonly storage: StorageAPI
+
+  /**
+   * Creates an ExtensionRepository instance.
+   * @param storage Extension-scoped storage API from ExtensionContext
+   */
+  constructor(storage: StorageAPI) {
+    this.storage = storage
   }
 
   /**
-   * Creates a new MailRepository instance scoped to the specified user ID.
-   * All operations on the returned repository will be filtered/scoped to this user.
-   * @param userId The user ID to scope operations to
-   * @returns A new MailRepository instance with the specified user ID
+   * Registers a user as having mail accounts.
+   * Should be called when a user adds their first account.
+   * @param userId The user ID to register
    */
-  withUser(userId: string): MailRepository {
-    return new MailRepository(this.db.withUser(userId))
+  async registerUser(userId: string): Promise<void> {
+    await this.storage.put('users', userId, { id: userId, registeredAt: new Date().toISOString() })
   }
 
   /**
-   * Initializes the database schema.
+   * Unregisters a user when they have no more accounts.
+   * @param userId The user ID to unregister
    */
-  async initialize(): Promise<void> {
-    await this.db.initialize()
+  async unregisterUser(userId: string): Promise<void> {
+    await this.storage.delete('users', userId)
   }
 
   /**
-   * Gets all unique user IDs that have mail accounts.
-   * This is used to schedule polling for all users at startup.
-   * @returns Array of unique user IDs
+   * Gets all registered user IDs.
+   * @returns Array of user IDs
    */
   async getAllUserIds(): Promise<string[]> {
-    await this.db.initialize()
-
-    const rows = await this.db.execute<{ user_id: string }>(
-      `SELECT DISTINCT user_id FROM ext_mail_reader_accounts WHERE enabled = 1`
-    )
-
-    return rows.map((row) => row.user_id)
+    const docs = await this.storage.find<{ id: string }>('users')
+    return docs.map((doc) => doc.id)
   }
 }

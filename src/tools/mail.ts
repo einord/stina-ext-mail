@@ -1,21 +1,30 @@
 /**
  * Mail Tools
+ *
+ * Tools for reading and listing emails. Each tool creates a repository instance
+ * using the user-scoped storage and secrets from ExecutionContext.
  */
 
 import type { Tool, ToolResult, ExecutionContext } from '@stina/extension-api/runtime'
-import type { MailRepository } from '../db/repository.js'
+import { MailRepository } from '../db/repository.js'
 import type { ProviderRegistry } from '../providers/index.js'
 
 /**
+ * Creates a user-scoped repository from the execution context.
+ * @param context Execution context with userStorage and userSecrets
+ * @returns MailRepository instance
+ */
+function createRepository(context: ExecutionContext): MailRepository {
+  return new MailRepository(context.userStorage, context.userSecrets)
+}
+
+/**
  * Creates the mail_list_recent tool.
- * @param repository Mail repository
+ * Lists recent emails from all or a specific mail account.
  * @param providers Provider registry
  * @returns Tool definition
  */
-export function createListRecentTool(
-  repository: MailRepository,
-  providers: ProviderRegistry
-): Tool {
+export function createListRecentTool(providers: ProviderRegistry): Tool {
   return {
     id: 'mail_list_recent',
     name: 'List Recent Emails',
@@ -44,16 +53,16 @@ export function createListRecentTool(
       const { accountId, limit: limitParam } = params as { accountId?: string; limit?: number }
 
       try {
-        const userRepo = repository.withUser(context.userId)
+        const repository = createRepository(context)
         const limit = limitParam ?? 10
 
         // Get accounts to fetch from
         let accounts
         if (accountId) {
-          const account = await userRepo.accounts.get(accountId)
+          const account = await repository.accounts.get(accountId)
           accounts = account ? [account] : []
         } else {
-          accounts = await userRepo.accounts.list()
+          accounts = await repository.accounts.list()
         }
 
         if (accounts.length === 0) {
@@ -84,7 +93,7 @@ export function createListRecentTool(
 
           try {
             const provider = providers.getRequired(account.provider)
-            const sinceUid = await userRepo.processed.getHighestUid(account.id)
+            const sinceUid = await repository.processed.getHighestUid(account.id)
             const emails = await provider.fetchNewEmails(account, account.credentials, sinceUid)
 
             // Add account info to each email
@@ -102,10 +111,10 @@ export function createListRecentTool(
             }
 
             // Update sync status
-            await userRepo.accounts.updateSyncStatus(account.id, null)
+            await repository.accounts.updateSyncStatus(account.id, null)
           } catch (error) {
             // Continue with other accounts on error
-            await userRepo.accounts.updateSyncStatus(
+            await repository.accounts.updateSyncStatus(
               account.id,
               error instanceof Error ? error.message : String(error)
             )
@@ -146,14 +155,11 @@ export function createListRecentTool(
 
 /**
  * Creates the mail_get tool.
- * @param repository Mail repository
+ * Gets the full content of a specific email by its ID.
  * @param providers Provider registry
  * @returns Tool definition
  */
-export function createGetMailTool(
-  repository: MailRepository,
-  providers: ProviderRegistry
-): Tool {
+export function createGetMailTool(providers: ProviderRegistry): Tool {
   return {
     id: 'mail_get',
     name: 'Get Email',
@@ -185,8 +191,8 @@ export function createGetMailTool(
           return { success: false, error: 'Invalid email ID format' }
         }
 
-        const userRepo = repository.withUser(context.userId)
-        const account = await userRepo.accounts.get(accountId)
+        const repository = createRepository(context)
+        const account = await repository.accounts.get(accountId)
 
         if (!account) {
           return { success: false, error: 'Account not found' }

@@ -2,6 +2,7 @@
  * Mail Reader Extension for Stina
  *
  * Reads incoming emails from configured accounts and notifies Stina.
+ * Uses the Extension Storage API for data persistence and Secrets API for credentials.
  */
 
 import {
@@ -11,8 +12,10 @@ import {
   type Disposable,
   type BackgroundWorkersAPI,
   type BackgroundTaskContext,
+  type StorageAPI,
+  type SecretsAPI,
 } from '@stina/extension-api/runtime'
-import { MailRepository, type DatabaseAPI } from './db/repository.js'
+import { MailRepository, ExtensionRepository } from './db/repository.js'
 import { ProviderRegistry, getProviderLabel, type ProviderConfig } from './providers/index.js'
 import { IdleManager } from './imap/idle.js'
 import { ImapClient } from './imap/client.js'
@@ -116,16 +119,31 @@ function getEditState(userId: string): EditState {
   return editStates.get(userId)!
 }
 
+/**
+ * Creates a MailRepository for a user using the execution context.
+ * @param execContext Execution context with userStorage and userSecrets
+ * @returns MailRepository instance
+ */
+function createUserRepository(execContext: ExecutionContext): MailRepository {
+  return new MailRepository(execContext.userStorage, execContext.userSecrets)
+}
+
 function activate(context: ExtensionContext): Disposable {
   context.log.info('Activating Mail Reader extension')
 
-  if (!context.database) {
-    context.log.warn('Database permission missing; Mail Reader disabled')
+  // Check for required permissions
+  if (!context.storage) {
+    context.log.warn('Storage permission missing; Mail Reader disabled')
     return { dispose: () => undefined }
   }
 
-  const repository = new MailRepository(context.database as DatabaseAPI)
-  void repository.initialize()
+  if (!context.secrets) {
+    context.log.warn('Secrets permission missing; Mail Reader disabled')
+    return { dispose: () => undefined }
+  }
+
+  // Extension-scoped repository for tracking users across the system
+  const extensionRepo = new ExtensionRepository(context.storage)
 
   const providers = new ProviderRegistry()
   const eventsApi = (context as ExtensionContext & { events?: EventsApi }).events
@@ -183,10 +201,11 @@ function activate(context: ExtensionContext): Disposable {
   // Sync baseline UIDs for an account (no notifications, just mark current state)
   const syncAccountBaseline = async (
     accountId: string,
-    userId: string
+    userStorage: StorageAPI,
+    userSecrets: SecretsAPI
   ): Promise<void> => {
     try {
-      const userRepo = repository.withUser(userId)
+      const userRepo = new MailRepository(userStorage, userSecrets)
       const account = await userRepo.accounts.get(accountId)
       if (!account || !account.enabled) return
 
@@ -217,12 +236,14 @@ function activate(context: ExtensionContext): Disposable {
   // Handle new email notification
   const handleNewEmail = async (
     accountId: string,
+    userStorage: StorageAPI,
+    userSecrets: SecretsAPI,
     userId: string
   ): Promise<void> => {
     if (!chat) return
 
     try {
-      const userRepo = repository.withUser(userId)
+      const userRepo = new MailRepository(userStorage, userSecrets)
       const account = await userRepo.accounts.get(accountId)
       if (!account || !account.enabled) return
 
@@ -233,7 +254,7 @@ function activate(context: ExtensionContext): Disposable {
       // If no baseline exists, sync it first (no notifications)
       if (sinceUid === 0) {
         context.log.info('No baseline for account, syncing...', { accountId })
-        await syncAccountBaseline(accountId, userId)
+        await syncAccountBaseline(accountId, userStorage, userSecrets)
         return
       }
 
@@ -299,19 +320,21 @@ function activate(context: ExtensionContext): Disposable {
     }
   }
 
-  // Poll all accounts for a user
-  const pollAllAccounts = async (userId: string): Promise<void> => {
+  // Poll all accounts for a user using their execution context
+  const pollAllAccountsWithContext = async (execContext: ExecutionContext): Promise<void> => {
+    if (!execContext.userId) return
+
     try {
-      const userRepo = repository.withUser(userId)
+      const userRepo = createUserRepository(execContext)
       const accounts = await userRepo.accounts.list()
 
       for (const account of accounts) {
         if (!account.enabled) continue
-        await handleNewEmail(account.id, userId)
+        await handleNewEmail(account.id, execContext.userStorage, execContext.userSecrets, execContext.userId)
       }
     } catch (error) {
       context.log.warn('Failed to poll accounts', {
-        userId,
+        userId: execContext.userId,
         error: error instanceof Error ? error.message : String(error),
       })
     }
@@ -325,14 +348,14 @@ function activate(context: ExtensionContext): Disposable {
 
   /**
    * Ensures credentials are fresh, refreshing OAuth2 tokens if needed.
-   * Updates the database with new credentials if refreshed.
+   * Updates the storage with new credentials if refreshed.
    * @param account The mail account
    * @param userRepo User repository for saving credentials
    * @returns Fresh credentials
    */
   const ensureFreshCredentials = async (
     account: MailAccount,
-    userRepo: ReturnType<typeof repository.withUser>
+    userRepo: MailRepository
   ): Promise<MailCredentials> => {
     const provider = providers.getRequired(account.provider)
 
@@ -350,7 +373,7 @@ function activate(context: ExtensionContext): Disposable {
     context.log.info('Refreshing OAuth2 token', { accountId: account.id })
     const newCredentials = await provider.refreshCredentials(account.credentials)
 
-    // Save to database
+    // Save to storage
     if (newCredentials.type === 'oauth2') {
       await userRepo.accounts.upsert(account.id, {
         provider: account.provider,
@@ -386,7 +409,7 @@ function activate(context: ExtensionContext): Disposable {
         async (ctx: BackgroundTaskContext) => {
           ctx.reportHealth('Starting IDLE connections...')
 
-          const userRepo = repository.withUser(userId)
+          const userRepo = new MailRepository(ctx.userStorage, ctx.userSecrets)
           const accounts = await userRepo.accounts.list()
           const enabledAccounts = accounts.filter((a) => a.enabled)
 
@@ -397,7 +420,7 @@ function activate(context: ExtensionContext): Disposable {
 
           const localIdleManager = new IdleManager(async (accountId) => {
             ctx.log.info('New mail detected via IDLE', { accountId })
-            await handleNewEmail(accountId, userId)
+            await handleNewEmail(accountId, ctx.userStorage, ctx.userSecrets, userId)
           })
 
           // Track active connections for token refresh
@@ -450,7 +473,7 @@ function activate(context: ExtensionContext): Disposable {
                   // Skip if provider doesn't support token refresh
                   if (!provider.needsRefresh || !provider.refreshCredentials) continue
 
-                  // Get fresh account data from database
+                  // Get fresh account data from storage
                   const currentAccount = await userRepo.accounts.get(accountId)
                   if (!currentAccount || !currentAccount.enabled) continue
 
@@ -544,7 +567,7 @@ function activate(context: ExtensionContext): Disposable {
             }
 
             try {
-              const userRepo = repository.withUser(execContext.userId)
+              const userRepo = createUserRepository(execContext)
               const accounts = await userRepo.accounts.list()
 
               const displayData: AccountDisplayData[] = accounts.map((account) => ({
@@ -625,7 +648,7 @@ function activate(context: ExtensionContext): Disposable {
             }
 
             const id = params.id as string
-            const userRepo = repository.withUser(execContext.userId)
+            const userRepo = createUserRepository(execContext)
             const account = await userRepo.accounts.get(id)
 
             if (!account) {
@@ -731,6 +754,8 @@ function activate(context: ExtensionContext): Disposable {
                 // Start polling in background
                 void pollForOAuthToken(
                   execContext.userId,
+                  execContext.userStorage,
+                  execContext.userSecrets,
                   'gmail',
                   result.deviceCode,
                   result.interval,
@@ -751,6 +776,8 @@ function activate(context: ExtensionContext): Disposable {
                 // Start polling in background
                 void pollForOAuthToken(
                   execContext.userId,
+                  execContext.userStorage,
+                  execContext.userSecrets,
                   'outlook',
                   result.deviceCode,
                   result.interval,
@@ -831,7 +858,7 @@ function activate(context: ExtensionContext): Disposable {
             }
 
             const state = getEditState(execContext.userId)
-            const userRepo = repository.withUser(execContext.userId)
+            const userRepo = createUserRepository(execContext)
 
             try {
               await userRepo.accounts.upsert(state.editingId || undefined, {
@@ -845,12 +872,14 @@ function activate(context: ExtensionContext): Disposable {
                 password: state.form.password || undefined,
               })
 
+              // Register user in extension-scoped storage for polling discovery
+              await extensionRepo.registerUser(execContext.userId)
+
               state.showModal = false
               emitEditChanged()
               emitAccountChanged()
 
-              // Start IDLE worker and polling for this user
-              void startIdleWorkerForUser(execContext.userId)
+              // Schedule polling for this user
               void schedulePollingForUser(execContext.userId)
 
               return { success: true }
@@ -872,10 +901,17 @@ function activate(context: ExtensionContext): Disposable {
             }
 
             const id = params.id as string
-            const userRepo = repository.withUser(execContext.userId)
+            const userRepo = createUserRepository(execContext)
 
             try {
               await userRepo.accounts.delete(id)
+
+              // Check if user has any remaining accounts
+              const remainingAccounts = await userRepo.accounts.list()
+              if (remainingAccounts.length === 0) {
+                await extensionRepo.unregisterUser(execContext.userId)
+              }
+
               emitAccountChanged()
               return { success: true }
             } catch (error) {
@@ -896,7 +932,7 @@ function activate(context: ExtensionContext): Disposable {
             }
 
             try {
-              const userRepo = repository.withUser(execContext.userId)
+              const userRepo = createUserRepository(execContext)
               const settings = await userRepo.settings.get()
               return {
                 success: true,
@@ -923,7 +959,7 @@ function activate(context: ExtensionContext): Disposable {
             const value = params.value as string
 
             try {
-              const userRepo = repository.withUser(execContext.userId)
+              const userRepo = createUserRepository(execContext)
 
               if (key === 'instruction') {
                 await userRepo.settings.update({ instruction: value })
@@ -945,6 +981,8 @@ function activate(context: ExtensionContext): Disposable {
   // Poll for OAuth token in background
   const pollForOAuthToken = async (
     userId: string,
+    userStorage: StorageAPI,
+    userSecrets: SecretsAPI,
     provider: 'gmail' | 'outlook',
     deviceCode: string,
     interval: number,
@@ -952,6 +990,7 @@ function activate(context: ExtensionContext): Disposable {
   ): Promise<void> => {
     const maxAttempts = 60 // 5 minutes at 5 second intervals
     const state = getEditState(userId)
+    const userRepo = new MailRepository(userStorage, userSecrets)
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       await new Promise((resolve) => setTimeout(resolve, interval * 1000))
@@ -974,7 +1013,6 @@ function activate(context: ExtensionContext): Disposable {
 
         if (token) {
           // Save the account with OAuth credentials
-          const userRepo = repository.withUser(userId)
           await userRepo.accounts.upsert(state.editingId || undefined, {
             provider,
             name: state.form.name,
@@ -984,10 +1022,16 @@ function activate(context: ExtensionContext): Disposable {
             expiresAt: new Date(Date.now() + token.expiresIn * 1000).toISOString(),
           })
 
+          // Register user for polling discovery
+          await extensionRepo.registerUser(userId)
+
           state.oauthStatus = 'connected'
           state.showModal = false
           emitEditChanged()
           emitAccountChanged()
+
+          // Schedule polling for this user
+          void schedulePollingForUser(userId)
           return
         }
       } catch (error) {
@@ -1013,21 +1057,21 @@ function activate(context: ExtensionContext): Disposable {
   // Register tools
   const disposables = [
     ...actionDisposables,
-    context.tools!.register(createListAccountsTool(repository)),
-    context.tools!.register(createAddAccountTool(repository, providers)),
-    context.tools!.register(createUpdateAccountTool(repository)),
+    context.tools!.register(createListAccountsTool()),
+    context.tools!.register(createAddAccountTool(providers)),
+    context.tools!.register(createUpdateAccountTool()),
     context.tools!.register(
-      createDeleteAccountTool(repository, (accountId) => {
+      createDeleteAccountTool((accountId) => {
         emitAccountChanged()
         void idleManager.stopIdle(accountId)
       })
     ),
-    context.tools!.register(createTestAccountTool(repository, providers)),
-    context.tools!.register(createListRecentTool(repository, providers)),
-    context.tools!.register(createGetMailTool(repository, providers)),
-    context.tools!.register(createGetSettingsTool(repository)),
+    context.tools!.register(createTestAccountTool(providers)),
+    context.tools!.register(createListRecentTool(providers)),
+    context.tools!.register(createGetMailTool(providers)),
+    context.tools!.register(createGetSettingsTool()),
     context.tools!.register(
-      createUpdateSettingsTool(repository, () => emitSettingsChanged())
+      createUpdateSettingsTool(() => emitSettingsChanged())
     ),
   ]
 
@@ -1069,7 +1113,7 @@ function activate(context: ExtensionContext): Disposable {
       if (!userId) return
 
       context.log.debug('Polling triggered', { userId })
-      await pollAllAccounts(userId)
+      await pollAllAccountsWithContext(execContext)
     })
 
     context.log.info('Email polling scheduler configured', { intervalMs: POLL_INTERVAL_MS })
@@ -1078,7 +1122,7 @@ function activate(context: ExtensionContext): Disposable {
   // Auto-start polling for all existing users with accounts
   const initializePollingForExistingUsers = async (): Promise<void> => {
     try {
-      const userIds = await repository.getAllUserIds()
+      const userIds = await extensionRepo.getAllUserIds()
 
       if (userIds.length === 0) {
         context.log.info('No existing mail accounts found, polling will start when accounts are added')
@@ -1088,7 +1132,7 @@ function activate(context: ExtensionContext): Disposable {
       context.log.info('Starting email polling for existing users', { userCount: userIds.length })
 
       for (const userId of userIds) {
-        await startIdleWorkerForUser(userId)
+        void startIdleWorkerForUser(userId)
         await schedulePollingForUser(userId)
       }
     } catch (error) {
@@ -1098,7 +1142,7 @@ function activate(context: ExtensionContext): Disposable {
     }
   }
 
-  // Schedule polling initialization after a short delay to ensure DB is ready
+  // Schedule polling initialization after a short delay to ensure storage is ready
   void initializePollingForExistingUsers()
 
   return {
