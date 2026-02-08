@@ -9,8 +9,6 @@ import type {
   MailAccount,
   MailAccountInput,
   MailCredentials,
-  MailSettings,
-  MailSettingsUpdate,
   ListAccountsOptions,
   AuthType,
   MailProvider,
@@ -20,7 +18,6 @@ import type {
 /** Collection names */
 const COLLECTIONS = {
   accounts: 'accounts',
-  settings: 'settings',
   processed: 'processed',
 } as const
 
@@ -61,27 +58,6 @@ interface AccountDocument {
   lastError: string | null
   createdAt: string
   updatedAt: string
-}
-
-/**
- * Document type for settings stored in storage.
- */
-interface SettingsDocument {
-  id: string
-  instruction: string
-  createdAt: string
-  updatedAt: string
-}
-
-/**
- * Document type for processed emails stored in storage.
- */
-interface ProcessedDocument {
-  id: string
-  accountId: string
-  messageId: string
-  uid: number
-  processedAt: string
 }
 
 /**
@@ -355,192 +331,5 @@ export class AccountsRepository {
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt,
     }
-  }
-}
-
-/**
- * Repository for managing mail settings.
- */
-export class SettingsRepository {
-  private readonly storage: StorageAPI
-
-  /**
-   * Creates a SettingsRepository instance.
-   * @param storage User-scoped storage API
-   */
-  constructor(storage: StorageAPI) {
-    this.storage = storage
-  }
-
-  /**
-   * Gets the mail settings for the current user.
-   * Creates default settings if none exist.
-   * @returns Mail settings
-   */
-  async get(): Promise<MailSettings> {
-    // Use a fixed ID since there's only one settings document per user
-    const settingsId = 'user-settings'
-    const doc = await this.storage.get<SettingsDocument>(COLLECTIONS.settings, settingsId)
-
-    if (doc) {
-      return {
-        id: doc.id,
-        userId: '', // User ID is implicit
-        instruction: doc.instruction,
-        createdAt: doc.createdAt,
-        updatedAt: doc.updatedAt,
-      }
-    }
-
-    // Create default settings
-    const now = new Date().toISOString()
-    const newDoc: SettingsDocument = {
-      id: settingsId,
-      instruction: '',
-      createdAt: now,
-      updatedAt: now,
-    }
-
-    await this.storage.put(COLLECTIONS.settings, settingsId, newDoc)
-
-    return {
-      id: settingsId,
-      userId: '',
-      instruction: '',
-      createdAt: now,
-      updatedAt: now,
-    }
-  }
-
-  /**
-   * Updates the mail settings for the current user.
-   * @param update Settings update
-   * @returns Updated settings
-   */
-  async update(update: MailSettingsUpdate): Promise<MailSettings> {
-    const settings = await this.get()
-    const now = new Date().toISOString()
-
-    const instruction = update.instruction ?? settings.instruction
-
-    const doc: SettingsDocument = {
-      id: settings.id,
-      instruction,
-      createdAt: settings.createdAt,
-      updatedAt: now,
-    }
-
-    await this.storage.put(COLLECTIONS.settings, settings.id, doc)
-
-    return {
-      ...settings,
-      instruction,
-      updatedAt: now,
-    }
-  }
-}
-
-/**
- * Repository for tracking processed emails.
- */
-export class ProcessedRepository {
-  private readonly storage: StorageAPI
-
-  /**
-   * Creates a ProcessedRepository instance.
-   * @param storage User-scoped storage API
-   */
-  constructor(storage: StorageAPI) {
-    this.storage = storage
-  }
-
-  /**
-   * Checks if an email has been processed.
-   * @param accountId Account ID
-   * @param messageId Email Message-ID header
-   * @returns True if already processed
-   */
-  async isProcessed(accountId: string, messageId: string): Promise<boolean> {
-    const doc = await this.storage.findOne<ProcessedDocument>(COLLECTIONS.processed, {
-      accountId,
-      messageId,
-    })
-    return doc !== undefined
-  }
-
-  /**
-   * Marks an email as processed.
-   * @param accountId Account ID
-   * @param messageId Email Message-ID header
-   * @param uid IMAP UID
-   */
-  async markProcessed(accountId: string, messageId: string, uid: number): Promise<void> {
-    const existing = await this.storage.findOne<ProcessedDocument>(COLLECTIONS.processed, {
-      accountId,
-      messageId,
-    })
-
-    if (existing) return // Already processed
-
-    const processedId = generateId('prc')
-    const now = new Date().toISOString()
-
-    const doc: ProcessedDocument = {
-      id: processedId,
-      accountId,
-      messageId,
-      uid,
-      processedAt: now,
-    }
-
-    await this.storage.put(COLLECTIONS.processed, processedId, doc)
-  }
-
-  /**
-   * Atomically tries to mark an email as processed.
-   * Returns true if the email was newly marked (this caller should process it).
-   * Returns false if the email was already marked (another caller already processed it).
-   * @param accountId Account ID
-   * @param messageId Email Message-ID header
-   * @param uid IMAP UID
-   * @returns True if this call marked the email, false if already marked
-   */
-  async tryMarkProcessed(accountId: string, messageId: string, uid: number): Promise<boolean> {
-    // Check if already processed
-    const existing = await this.storage.findOne<ProcessedDocument>(COLLECTIONS.processed, {
-      accountId,
-      messageId,
-    })
-
-    if (existing) return false
-
-    const processedId = generateId('prc')
-    const now = new Date().toISOString()
-
-    const doc: ProcessedDocument = {
-      id: processedId,
-      accountId,
-      messageId,
-      uid,
-      processedAt: now,
-    }
-
-    await this.storage.put(COLLECTIONS.processed, processedId, doc)
-    return true
-  }
-
-  /**
-   * Gets the highest processed UID for an account.
-   * @param accountId Account ID
-   * @returns Highest UID or 0
-   */
-  async getHighestUid(accountId: string): Promise<number> {
-    const docs = await this.storage.find<ProcessedDocument>(
-      COLLECTIONS.processed,
-      { accountId },
-      { sort: { uid: 'desc' }, limit: 1 }
-    )
-
-    return docs.length > 0 ? docs[0].uid : 0
   }
 }

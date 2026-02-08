@@ -6,7 +6,9 @@
  */
 
 import type { StorageAPI, SecretsAPI } from '@stina/extension-api/runtime'
-import { AccountsRepository, SettingsRepository, ProcessedRepository } from './accountsRepository.js'
+import { AccountsRepository } from './accountsRepository.js'
+import { SettingsRepository } from './settingsRepository.js'
+import { ProcessedRepository } from './processedRepository.js'
 
 /**
  * Main repository class for Mail Reader extension.
@@ -26,32 +28,6 @@ export class MailRepository {
     this.accounts = new AccountsRepository(storage, secrets)
     this.settings = new SettingsRepository(storage)
     this.processed = new ProcessedRepository(storage)
-  }
-}
-
-/**
- * Factory interface for creating user-scoped repositories.
- * This is used in activate() for operations that need to list all users.
- */
-export interface RepositoryFactory {
-  /**
-   * Creates a MailRepository for a specific user using their storage context.
-   * @param userStorage User-scoped storage API
-   * @param userSecrets User-scoped secrets API
-   * @returns MailRepository instance
-   */
-  createRepository(userStorage: StorageAPI, userSecrets: SecretsAPI): MailRepository
-}
-
-/**
- * Creates a repository factory.
- * @returns RepositoryFactory instance
- */
-export function createRepositoryFactory(): RepositoryFactory {
-  return {
-    createRepository(userStorage: StorageAPI, userSecrets: SecretsAPI): MailRepository {
-      return new MailRepository(userStorage, userSecrets)
-    },
   }
 }
 

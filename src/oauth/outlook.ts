@@ -118,13 +118,3 @@ export function isOutlookTokenExpired(expiresAt: string, bufferMinutes: number =
   return Date.now() >= expirationTime - bufferMs
 }
 
-/**
- * Builds XOAUTH2 string for IMAP authentication.
- * @param email User email address
- * @param accessToken OAuth2 access token
- * @returns Base64-encoded XOAUTH2 string
- */
-export function buildOutlookXOAuth2String(email: string, accessToken: string): string {
-  const authString = `user=${email}\x01auth=Bearer ${accessToken}\x01\x01`
-  return Buffer.from(authString).toString('base64')
-}

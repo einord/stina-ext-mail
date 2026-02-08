@@ -94,13 +94,3 @@ export function isGmailTokenExpired(expiresAt: string, bufferMinutes: number = 5
   return Date.now() >= expirationTime - bufferMs
 }
 
-/**
- * Builds XOAUTH2 string for IMAP authentication.
- * @param email User email address
- * @param accessToken OAuth2 access token
- * @returns Base64-encoded XOAUTH2 string
- */
-export function buildXOAuth2String(email: string, accessToken: string): string {
-  const authString = `user=${email}\x01auth=Bearer ${accessToken}\x01\x01`
-  return Buffer.from(authString).toString('base64')
-}

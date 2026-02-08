@@ -6,7 +6,6 @@ export {
   initiateDeviceCodeFlow,
   pollForToken,
   refreshAccessToken,
-  pollForTokenWithRetry,
   type DeviceCodeConfig,
   type DeviceCodeFlowResult,
 } from './device-code.js'
@@ -16,7 +15,6 @@ export {
   pollGmailToken,
   refreshGmailToken,
   isGmailTokenExpired,
-  buildXOAuth2String,
   type GmailOAuthConfig,
 } from './gmail.js'
 
@@ -25,7 +23,6 @@ export {
   pollOutlookToken,
   refreshOutlookToken,
   isOutlookTokenExpired,
-  buildOutlookXOAuth2String,
   DEFAULT_OUTLOOK_CLIENT_ID,
   type OutlookOAuthConfig,
 } from './outlook.js'

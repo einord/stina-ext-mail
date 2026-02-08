@@ -19,6 +19,7 @@ export interface IdleState {
   isIdling: boolean
   reconnectAttempts: number
   lastActivity: Date
+  existsListener: (() => void) | null
 }
 
 /**
@@ -63,6 +64,7 @@ export class IdleManager {
       isIdling: false,
       reconnectAttempts: 0,
       lastActivity: new Date(),
+      existsListener: null,
     }
 
     this.connections.set(accountId, state)
@@ -94,6 +96,15 @@ export class IdleManager {
     if (!state) return
 
     state.isIdling = false
+
+    // Remove event listener to prevent leaks
+    if (state.existsListener) {
+      const imapClient = state.client.getClient()
+      if (imapClient) {
+        imapClient.off('exists', state.existsListener)
+      }
+      state.existsListener = null
+    }
 
     try {
       await state.client.disconnect()
@@ -135,8 +146,14 @@ export class IdleManager {
         state.isIdling = true
         state.lastActivity = new Date()
 
+        // Remove any previously registered listener before adding a new one
+        if (state.existsListener) {
+          imapClient.off('exists', state.existsListener)
+          state.existsListener = null
+        }
+
         // Listen for new mail events
-        imapClient.on('exists', async () => {
+        const existsHandler = async () => {
           state.lastActivity = new Date()
 
           try {
@@ -144,7 +161,9 @@ export class IdleManager {
           } catch {
             // Ignore new mail handling errors
           }
-        })
+        }
+        state.existsListener = existsHandler
+        imapClient.on('exists', existsHandler)
 
         // Start IDLE
         await this.doIdle(imapClient, state)
