@@ -137,6 +137,7 @@ export class ImapClient {
       host: this.config.host,
       port: this.config.port,
       secure: this.config.secure,
+      ...(this.config.tls ? { tls: this.config.tls } : {}),
       auth: authConfig,
       logger: false,
       connectionTimeout: this.timeoutMs,

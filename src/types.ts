@@ -31,6 +31,7 @@ export interface MailAccount {
   imapHost: string | null
   imapPort: number | null
   imapSecurity: ImapSecurity | null
+  allowSelfSignedCert: boolean
 
   // Auth
   authType: AuthType
@@ -79,6 +80,7 @@ export interface MailAccountInput {
   imapHost?: string | null
   imapPort?: number | null
   imapSecurity?: ImapSecurity | null
+  allowSelfSignedCert?: boolean
   username?: string
   password?: string
   accessToken?: string
@@ -149,6 +151,7 @@ export interface ImapConfig {
   host: string
   port: number
   secure: boolean
+  tls?: { rejectUnauthorized?: boolean }
   auth: ImapAuth
 }
 
@@ -218,6 +221,7 @@ export interface EditFormState {
   imapHost: string
   imapPort: string
   imapSecurity: ImapSecurity
+  allowSelfSignedCert: boolean
   username: string
 }
 

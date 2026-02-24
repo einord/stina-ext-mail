@@ -112,6 +112,7 @@ export function registerActions(actionsApi: ActionsApi, deps: ActionDeps): Array
           imapHost: '',
           imapPort: '993',
           imapSecurity: 'ssl',
+          allowSelfSignedCert: false,
           username: '',
         }
         state.oauthStatus = 'pending'
@@ -151,6 +152,7 @@ export function registerActions(actionsApi: ActionsApi, deps: ActionDeps): Array
           imapHost: account.imapHost || '',
           imapPort: String(account.imapPort || 993),
           imapSecurity: account.imapSecurity || 'ssl',
+          allowSelfSignedCert: account.allowSelfSignedCert ?? false,
           username:
             account.credentials.type === 'password' ? account.credentials.username : '',
         }
@@ -317,6 +319,7 @@ export function registerActions(actionsApi: ActionsApi, deps: ActionDeps): Array
           imapHost: state.form.imapHost || null,
           imapPort: parseInt(state.form.imapPort, 10) || null,
           imapSecurity: state.form.imapSecurity || null,
+          allowSelfSignedCert: state.form.allowSelfSignedCert ?? false,
           authType: 'password' as const,
           credentials: {
             type: 'password' as const,
@@ -369,6 +372,7 @@ export function registerActions(actionsApi: ActionsApi, deps: ActionDeps): Array
             imapHost: state.form.imapHost || undefined,
             imapPort: state.form.imapPort ? parseInt(state.form.imapPort, 10) : undefined,
             imapSecurity: state.form.imapSecurity || undefined,
+            allowSelfSignedCert: state.form.allowSelfSignedCert ?? false,
             username: state.form.username || undefined,
             password: state.form.password || undefined,
           })

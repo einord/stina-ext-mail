@@ -52,6 +52,7 @@ interface AccountDocument {
   imapHost: string | null
   imapPort: number | null
   imapSecurity: ImapSecurity | null
+  allowSelfSignedCert: boolean
   authType: AuthType
   enabled: boolean
   lastSyncAt: string | null
@@ -156,6 +157,8 @@ export class AccountsRepository {
       const imapPort = input.imapPort !== undefined ? input.imapPort : existing.imapPort
       const imapSecurity =
         input.imapSecurity !== undefined ? input.imapSecurity : existing.imapSecurity
+      const allowSelfSignedCert =
+        input.allowSelfSignedCert !== undefined ? input.allowSelfSignedCert : existing.allowSelfSignedCert
       const enabled = input.enabled !== undefined ? input.enabled : existing.enabled
 
       // Only update credentials if new ones are provided
@@ -171,6 +174,7 @@ export class AccountsRepository {
         imapHost: imapHost ?? null,
         imapPort: imapPort ?? null,
         imapSecurity: imapSecurity ?? null,
+        allowSelfSignedCert: allowSelfSignedCert ?? false,
         authType: finalAuthType,
         enabled,
         lastSyncAt: existing.lastSyncAt,
@@ -202,6 +206,7 @@ export class AccountsRepository {
       imapHost: input.imapHost ?? null,
       imapPort: input.imapPort ?? null,
       imapSecurity: input.imapSecurity ?? null,
+      allowSelfSignedCert: input.allowSelfSignedCert ?? false,
       authType,
       enabled: input.enabled !== false,
       lastSyncAt: null,
@@ -323,6 +328,7 @@ export class AccountsRepository {
       imapHost: doc.imapHost,
       imapPort: doc.imapPort,
       imapSecurity: doc.imapSecurity,
+      allowSelfSignedCert: doc.allowSelfSignedCert ?? false,
       authType: doc.authType,
       credentials,
       enabled: doc.enabled,

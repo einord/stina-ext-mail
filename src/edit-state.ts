@@ -22,6 +22,7 @@ function getDefaultEditState(): EditState {
       imapHost: '',
       imapPort: '993',
       imapSecurity: 'ssl',
+      allowSelfSignedCert: false,
       username: '',
     },
     oauthStatus: 'pending',

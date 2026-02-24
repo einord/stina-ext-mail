@@ -51,6 +51,7 @@ export class GenericImapProvider implements MailProviderInterface {
       host: account.imapHost,
       port,
       secure,
+      ...(account.allowSelfSignedCert ? { tls: { rejectUnauthorized: false } } : {}),
       auth: {
         user: credentials.username || account.email,
         pass: credentials.password,
