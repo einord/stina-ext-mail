@@ -24,7 +24,9 @@ function createRepository(context: ExecutionContext): MailRepository {
  * Lists all configured mail accounts for the current user.
  * @returns Tool definition
  */
-export function createListAccountsTool(): Tool {
+export function createListAccountsTool(
+  onUserHasAccounts?: (userId: string) => Promise<void>
+): Tool {
   return {
     id: 'mail_accounts_list',
     name: 'List Mail Accounts',
@@ -72,6 +74,11 @@ export function createListAccountsTool(): Tool {
           updatedAt: account.updatedAt,
         }))
 
+        // Self-heal: register user for polling if they have accounts
+        if (safeAccounts.length > 0 && onUserHasAccounts) {
+          void onUserHasAccounts(context.userId)
+        }
+
         return {
           success: true,
           data: {
@@ -95,7 +102,10 @@ export function createListAccountsTool(): Tool {
  * @param providers Provider registry for validation
  * @returns Tool definition
  */
-export function createAddAccountTool(providers: ProviderRegistry): Tool {
+export function createAddAccountTool(
+  providers: ProviderRegistry,
+  onAccountAdded?: (userId: string) => Promise<void>
+): Tool {
   return {
     id: 'mail_accounts_add',
     name: 'Add Mail Account',
@@ -166,6 +176,11 @@ export function createAddAccountTool(providers: ProviderRegistry): Tool {
 
         const repository = createRepository(context)
         const account = await repository.accounts.upsert(undefined, input)
+
+        // Register user and start polling for this new account
+        if (onAccountAdded) {
+          void onAccountAdded(context.userId)
+        }
 
         return {
           success: true,

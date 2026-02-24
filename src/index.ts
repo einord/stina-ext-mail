@@ -176,6 +176,20 @@ function activate(context: ExtensionContext): Disposable {
     log: context.log,
   })
 
+  // Self-healing: ensure user is registered and polling when tools discover accounts
+  const ensureUserPolling = async (userId: string): Promise<void> => {
+    try {
+      await extensionRepo.registerUser(userId)
+      await pollingScheduler.schedulePollingForUser(userId)
+      await idleWorkerManager.startIdleWorkerForUser(userId)
+    } catch (error) {
+      context.log.debug('Failed to ensure user polling', {
+        userId,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+
   // Register UI actions
   const actionDisposables = actionsApi
     ? registerActions(actionsApi, {
@@ -192,8 +206,8 @@ function activate(context: ExtensionContext): Disposable {
   // Register tools
   const disposables = [
     ...actionDisposables,
-    context.tools!.register(createListAccountsTool()),
-    context.tools!.register(createAddAccountTool(providers)),
+    context.tools!.register(createListAccountsTool(ensureUserPolling)),
+    context.tools!.register(createAddAccountTool(providers, ensureUserPolling)),
     context.tools!.register(
       createDeleteAccountTool((accountId) => {
         emitAccountChanged()
@@ -202,7 +216,7 @@ function activate(context: ExtensionContext): Disposable {
     ),
     context.tools!.register(createUpdateAccountTool()),
     context.tools!.register(createTestAccountTool(providers)),
-    context.tools!.register(createListRecentTool(providers)),
+    context.tools!.register(createListRecentTool(providers, ensureUserPolling)),
     context.tools!.register(createGetMailTool(providers)),
     context.tools!.register(createGetSettingsTool()),
     context.tools!.register(

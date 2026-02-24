@@ -215,6 +215,11 @@ export async function pollAllAccountsWithContext(
     const userRepo = new MailRepository(execContext.userStorage, execContext.userSecrets)
     const accounts = await userRepo.accounts.list()
 
+    // Self-heal: register user in extension-scoped storage
+    if (accounts.length > 0 && execContext.userId) {
+      void deps.extensionRepo.registerUser(execContext.userId).catch(() => {})
+    }
+
     for (const account of accounts) {
       if (!account.enabled) continue
       await handleNewEmail(account.id, execContext.userStorage, execContext.userSecrets, execContext.userId, deps)

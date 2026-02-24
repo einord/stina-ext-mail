@@ -24,7 +24,10 @@ function createRepository(context: ExecutionContext): MailRepository {
  * @param providers Provider registry
  * @returns Tool definition
  */
-export function createListRecentTool(providers: ProviderRegistry): Tool {
+export function createListRecentTool(
+  providers: ProviderRegistry,
+  onUserHasAccounts?: (userId: string) => Promise<void>
+): Tool {
   return {
     id: 'mail_list_recent',
     name: 'List Recent Emails',
@@ -120,6 +123,11 @@ export function createListRecentTool(providers: ProviderRegistry): Tool {
               error instanceof Error ? error.message : String(error)
             )
           }
+        }
+
+        // Self-heal: register user for polling if they have accounts
+        if (allEmails.length > 0 && onUserHasAccounts) {
+          void onUserHasAccounts(context.userId)
         }
 
         // Sort by date, newest first
