@@ -4,6 +4,8 @@
 
 import type { Disposable, StorageAPI, SecretsAPI } from '@stina/extension-api/runtime'
 import type { ExecutionContext } from '@stina/extension-api/runtime'
+import { readFile, writeFile, mkdir } from 'node:fs/promises'
+import { join } from 'node:path'
 import { MailRepository, ExtensionRepository } from './db/repository.js'
 import { ProviderRegistry } from './providers/index.js'
 import type { FormatEmailOptions } from './imap/parser.js'
@@ -53,6 +55,7 @@ export interface PollingDeps {
   chat?: ChatAPI
   scheduler?: SchedulerAPI
   user?: UserAPI
+  storagePath?: string
   log: {
     info: (msg: string, data?: Record<string, unknown>) => void
     warn: (msg: string, data?: Record<string, unknown>) => void
@@ -61,6 +64,38 @@ export interface PollingDeps {
 }
 
 const POLL_INTERVAL_MS = 5 * 60 * 1000 // Poll every 5 minutes (backup for IDLE)
+const KNOWN_USERS_FILE = 'known-users.json'
+
+/**
+ * Read known user IDs from file-based fallback registry.
+ */
+async function readKnownUsers(storagePath: string): Promise<string[]> {
+  try {
+    const filePath = join(storagePath, KNOWN_USERS_FILE)
+    const data = await readFile(filePath, 'utf-8')
+    const parsed = JSON.parse(data)
+    if (Array.isArray(parsed)) return parsed.filter((id): id is string => typeof id === 'string')
+    return []
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Persist a user ID to the file-based fallback registry.
+ */
+export async function persistKnownUser(storagePath: string, userId: string): Promise<void> {
+  try {
+    const filePath = join(storagePath, KNOWN_USERS_FILE)
+    const existing = await readKnownUsers(storagePath)
+    if (existing.includes(userId)) return
+    existing.push(userId)
+    await mkdir(storagePath, { recursive: true })
+    await writeFile(filePath, JSON.stringify(existing), 'utf-8')
+  } catch {
+    // Silently ignore write failures — this is a best-effort fallback
+  }
+}
 
 /**
  * Sync baseline UIDs for an account (no notifications, just mark current state).
@@ -216,9 +251,12 @@ export async function pollAllAccountsWithContext(
     const userRepo = new MailRepository(execContext.userStorage, execContext.userSecrets)
     const accounts = await userRepo.accounts.list()
 
-    // Self-heal: register user in extension-scoped storage
+    // Self-heal: register user in extension-scoped storage and file fallback
     if (accounts.length > 0 && execContext.userId) {
       void deps.extensionRepo.registerUser(execContext.userId).catch(() => {})
+      if (deps.storagePath) {
+        void persistKnownUser(deps.storagePath, execContext.userId).catch(() => {})
+      }
     }
 
     for (const account of accounts) {
@@ -280,26 +318,57 @@ export function createPollingScheduler(deps: PollingDeps) {
   ): Promise<void> => {
     try {
       let userIds = await deps.extensionRepo.getAllUserIds()
+      let discoverySource = 'storage'
 
-      // Fallback: if extension-scoped user registry is empty, try the platform API
+      deps.log.info('User discovery: storage registry', {
+        found: userIds.length,
+        hasUserApi: !!deps.user,
+        hasListIds: typeof deps.user?.listIds === 'function',
+        hasStoragePath: !!deps.storagePath,
+      })
+
+      // Fallback 1: if extension-scoped user registry is empty, try the platform API
       if (userIds.length === 0 && deps.user?.listIds) {
         deps.log.info('User registry empty, discovering users via platform API')
-        const platformUserIds = await deps.user.listIds()
-        if (platformUserIds.length > 0) {
-          // Re-register discovered users in extension-scoped storage
-          for (const uid of platformUserIds) {
+        try {
+          const platformUserIds = await deps.user.listIds()
+          if (platformUserIds.length > 0) {
+            for (const uid of platformUserIds) {
+              await deps.extensionRepo.registerUser(uid).catch(() => {})
+            }
+            userIds = platformUserIds
+            discoverySource = 'platform-api'
+          }
+        } catch (listError) {
+          deps.log.warn('Failed to call user.listIds()', {
+            error: listError instanceof Error ? listError.message : String(listError),
+          })
+        }
+      }
+
+      // Fallback 2: if still empty, try file-based known-users registry
+      if (userIds.length === 0 && deps.storagePath) {
+        deps.log.info('Trying file-based user registry fallback', { storagePath: deps.storagePath })
+        const fileUserIds = await readKnownUsers(deps.storagePath)
+        if (fileUserIds.length > 0) {
+          // Re-register in extension-scoped storage for next time
+          for (const uid of fileUserIds) {
             await deps.extensionRepo.registerUser(uid).catch(() => {})
           }
-          userIds = platformUserIds
+          userIds = fileUserIds
+          discoverySource = 'file-fallback'
         }
       }
 
       if (userIds.length === 0) {
-        deps.log.info('No existing mail accounts found, polling will start when accounts are added')
+        deps.log.info('No existing mail users found via any discovery method, polling will start when accounts are added')
         return
       }
 
-      deps.log.info('Starting email polling for existing users', { userCount: userIds.length })
+      deps.log.info('Starting email polling for existing users', {
+        userCount: userIds.length,
+        discoverySource,
+      })
 
       for (const userId of userIds) {
         void startIdleWorkerForUser(userId).catch((err) =>

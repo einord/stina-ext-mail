@@ -29,7 +29,7 @@ import {
   createUpdateSettingsTool,
 } from './tools/index.js'
 import { registerActions } from './actions/index.js'
-import { handleNewEmail, createPollingScheduler } from './polling.js'
+import { handleNewEmail, createPollingScheduler, persistKnownUser } from './polling.js'
 import { createIdleWorkerManager } from './idle-worker.js'
 import { clearAllEditStates } from './edit-state.js'
 
@@ -156,12 +156,14 @@ function activate(context: ExtensionContext): Disposable {
   })
 
   // Polling dependencies
+  const storagePath = context.extension.storagePath
   const pollingDeps = {
     providers,
     extensionRepo,
     chat,
     scheduler,
     user,
+    storagePath,
     log: context.log,
   }
 
@@ -181,6 +183,9 @@ function activate(context: ExtensionContext): Disposable {
   const ensureUserPolling = async (userId: string): Promise<void> => {
     try {
       await extensionRepo.registerUser(userId)
+      if (storagePath) {
+        await persistKnownUser(storagePath, userId)
+      }
       await pollingScheduler.schedulePollingForUser(userId)
       await idleWorkerManager.startIdleWorkerForUser(userId)
     } catch (error) {
