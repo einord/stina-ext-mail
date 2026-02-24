@@ -390,7 +390,7 @@
                               "component": "Pill",
                               "text": "$editState.connectionTestMessage",
                               "variant": "danger",
-                              "icon": "alert-circle"
+                              "icon": "alert-02"
                             }
                           ]
                         }
