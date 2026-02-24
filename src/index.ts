@@ -199,6 +199,7 @@ function activate(context: ExtensionContext): Disposable {
         emitSettingsChanged,
         emitEditChanged,
         schedulePollingForUser: pollingScheduler.schedulePollingForUser,
+        ensureUserPolling,
         log: context.log,
       })
     : []

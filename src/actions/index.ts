@@ -31,6 +31,7 @@ export interface ActionDeps {
   emitSettingsChanged: () => void
   emitEditChanged: () => void
   schedulePollingForUser: (userId: string) => Promise<void>
+  ensureUserPolling?: (userId: string) => Promise<void>
   log: {
     warn: (msg: string, data?: Record<string, unknown>) => void
   }
@@ -69,6 +70,11 @@ export function registerActions(actionsApi: ActionsApi, deps: ActionDeps): Array
             lastSyncAt: account.lastSyncAt,
             lastError: account.lastError,
           }))
+
+          // Self-heal: ensure user is registered for polling if they have accounts
+          if (accounts.length > 0 && deps.ensureUserPolling) {
+            void deps.ensureUserPolling(execContext.userId)
+          }
 
           return { success: true, data: displayData }
         } catch (error) {
