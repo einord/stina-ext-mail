@@ -156,7 +156,9 @@ function activate(context: ExtensionContext): Disposable {
   })
 
   // Polling dependencies
-  const storagePath = context.extension.storagePath
+  const rawStoragePath = context.extension.storagePath
+  // Guard against invalid storagePath (e.g. "undefined/mail-reader" when host doesn't set it)
+  const storagePath = rawStoragePath && !rawStoragePath.startsWith('undefined') ? rawStoragePath : undefined
   const pollingDeps = {
     providers,
     extensionRepo,
