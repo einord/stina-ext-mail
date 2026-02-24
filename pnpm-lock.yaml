@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  '@stina/extension-api': ^0.24.0
+
 importers:
 
   .:
@@ -25,8 +28,8 @@ importers:
         specifier: ^9.39.2
         version: 9.39.2
       '@stina/extension-api':
-        specifier: ^0.24.0
-        version: 0.24.0
+        specifier: file:../stina/packages/extension-api
+        version: file:../stina/packages/extension-api
       '@types/archiver':
         specifier: ^7.0.0
         version: 7.0.0
@@ -438,8 +441,8 @@ packages:
   '@selderee/plugin-htmlparser2@0.11.0':
     resolution: {integrity: sha512-P33hHGdldxGabLFjPPpaTxVolMrzrcegejx+0GxjrIb9Zv48D8yAIA/QTDR2dFl7Uz7urX8aX6+5bCZslr+gWQ==}
 
-  '@stina/extension-api@0.24.0':
-    resolution: {integrity: sha512-9Ety2mIg45BaiyQkMlr9SZnEB86MIpKHFopXYLWQV1oZqvHefUe9MRW6+JMyfNBSmDCy4MvF1RnY6NdGCCTVbg==}
+  '@stina/extension-api@file:../stina/packages/extension-api':
+    resolution: {directory: ../stina/packages/extension-api, type: directory}
 
   '@types/archiver@7.0.0':
     resolution: {integrity: sha512-/3vwGwx9n+mCQdYZ2IKGGHEFL30I96UgBlk8EtRDDFQ9uxM1l4O5Ci6r00EMAkiDaTqD9DQ6nVrWRICnBPtzzg==}
@@ -1730,7 +1733,7 @@ snapshots:
       domhandler: 5.0.3
       selderee: 0.11.0
 
-  '@stina/extension-api@0.24.0':
+  '@stina/extension-api@file:../stina/packages/extension-api':
     dependencies:
       zod: 3.25.76
 
