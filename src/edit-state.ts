@@ -28,6 +28,8 @@ function getDefaultEditState(): EditState {
     oauthStatus: 'pending',
     oauthUrl: '',
     oauthCode: '',
+    connectionTestStatus: 'idle',
+    connectionTestMessage: '',
   }
 }
 

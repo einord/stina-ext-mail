@@ -208,6 +208,8 @@ export interface EditState {
   oauthStatus: 'pending' | 'awaiting' | 'connected'
   oauthUrl: string
   oauthCode: string
+  connectionTestStatus: 'idle' | 'testing' | 'success' | 'error'
+  connectionTestMessage: string
 }
 
 /**

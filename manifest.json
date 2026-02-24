@@ -352,17 +352,65 @@
                 "footer": {
                   "component": "HorizontalStack",
                   "gap": 0.5,
-                  "style": { "justify-content": "flex-end" },
+                  "style": { "justify-content": "space-between", "align-items": "center" },
                   "children": [
                     {
-                      "component": "Button",
-                      "text": "Test Connection",
-                      "onClickAction": "testConnection"
+                      "component": "HorizontalStack",
+                      "gap": 0.25,
+                      "children": [
+                        {
+                          "component": "ConditionalGroup",
+                          "condition": "$editState.connectionTestStatus == 'testing'",
+                          "children": [
+                            {
+                              "component": "Pill",
+                              "text": "Testing...",
+                              "variant": "default",
+                              "icon": "loading-03"
+                            }
+                          ]
+                        },
+                        {
+                          "component": "ConditionalGroup",
+                          "condition": "$editState.connectionTestStatus == 'success'",
+                          "children": [
+                            {
+                              "component": "Pill",
+                              "text": "Connection successful!",
+                              "variant": "success",
+                              "icon": "checkmark-circle-02"
+                            }
+                          ]
+                        },
+                        {
+                          "component": "ConditionalGroup",
+                          "condition": "$editState.connectionTestStatus == 'error'",
+                          "children": [
+                            {
+                              "component": "Pill",
+                              "text": "$editState.connectionTestMessage",
+                              "variant": "danger",
+                              "icon": "alert-circle"
+                            }
+                          ]
+                        }
+                      ]
                     },
                     {
-                      "component": "Button",
-                      "text": "Save",
-                      "onClickAction": "saveAccount"
+                      "component": "HorizontalStack",
+                      "gap": 0.5,
+                      "children": [
+                        {
+                          "component": "Button",
+                          "text": "Test Connection",
+                          "onClickAction": "testConnection"
+                        },
+                        {
+                          "component": "Button",
+                          "text": "Save",
+                          "onClickAction": "saveAccount"
+                        }
+                      ]
                     }
                   ]
                 }

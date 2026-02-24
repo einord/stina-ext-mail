@@ -118,6 +118,8 @@ export function registerActions(actionsApi: ActionsApi, deps: ActionDeps): Array
         state.oauthStatus = 'pending'
         state.oauthUrl = ''
         state.oauthCode = ''
+        state.connectionTestStatus = 'idle'
+        state.connectionTestMessage = ''
 
         deps.emitEditChanged()
         return { success: true }
@@ -160,6 +162,8 @@ export function registerActions(actionsApi: ActionsApi, deps: ActionDeps): Array
           account.credentials.type === 'oauth2' ? 'connected' : 'pending'
         state.oauthUrl = ''
         state.oauthCode = ''
+        state.connectionTestStatus = 'idle'
+        state.connectionTestMessage = ''
 
         deps.emitEditChanged()
         return { success: true }
@@ -309,6 +313,11 @@ export function registerActions(actionsApi: ActionsApi, deps: ActionDeps): Array
 
         const state = getEditState(execContext.userId)
 
+        // Show testing status immediately
+        state.connectionTestStatus = 'testing'
+        state.connectionTestMessage = ''
+        deps.emitEditChanged()
+
         // Build temporary account for testing
         const testAccount = {
           id: 'test',
@@ -337,6 +346,10 @@ export function registerActions(actionsApi: ActionsApi, deps: ActionDeps): Array
           const provider = deps.providers.getRequired(testAccount.provider)
           await provider.testConnection(testAccount, testAccount.credentials)
 
+          state.connectionTestStatus = 'success'
+          state.connectionTestMessage = 'Connection successful!'
+          deps.emitEditChanged()
+
           return {
             success: true,
             data: {
@@ -345,9 +358,15 @@ export function registerActions(actionsApi: ActionsApi, deps: ActionDeps): Array
             },
           }
         } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error)
+
+          state.connectionTestStatus = 'error'
+          state.connectionTestMessage = `Could not connect: ${errorMessage}`
+          deps.emitEditChanged()
+
           return {
             success: false,
-            error: error instanceof Error ? error.message : String(error),
+            error: errorMessage,
           }
         }
       },
