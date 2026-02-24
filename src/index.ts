@@ -79,6 +79,7 @@ type UserProfile = {
 
 type UserAPI = {
   getProfile: (userId?: string) => Promise<UserProfile>
+  listIds?: () => Promise<string[]>
 }
 
 function activate(context: ExtensionContext): Disposable {

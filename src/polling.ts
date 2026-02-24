@@ -44,6 +44,7 @@ type UserProfile = {
 
 type UserAPI = {
   getProfile: (userId?: string) => Promise<UserProfile>
+  listIds?: () => Promise<string[]>
 }
 
 export interface PollingDeps {
@@ -278,7 +279,20 @@ export function createPollingScheduler(deps: PollingDeps) {
     startIdleWorkerForUser: (userId: string) => Promise<void>
   ): Promise<void> => {
     try {
-      const userIds = await deps.extensionRepo.getAllUserIds()
+      let userIds = await deps.extensionRepo.getAllUserIds()
+
+      // Fallback: if extension-scoped user registry is empty, try the platform API
+      if (userIds.length === 0 && deps.user?.listIds) {
+        deps.log.info('User registry empty, discovering users via platform API')
+        const platformUserIds = await deps.user.listIds()
+        if (platformUserIds.length > 0) {
+          // Re-register discovered users in extension-scoped storage
+          for (const uid of platformUserIds) {
+            await deps.extensionRepo.registerUser(uid).catch(() => {})
+          }
+          userIds = platformUserIds
+        }
+      }
 
       if (userIds.length === 0) {
         deps.log.info('No existing mail accounts found, polling will start when accounts are added')
