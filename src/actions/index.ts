@@ -382,11 +382,8 @@ export function registerActions(actionsApi: ActionsApi, deps: ActionDeps): Array
 
           state.showModal = false
 
-          // Clean up edit state after save
-          deleteEditState(execContext.userId)
-
-          deps.emitEditChanged()
           deps.emitAccountChanged()
+          deps.emitEditChanged()
 
           // Schedule polling for this user
           void deps.schedulePollingForUser(execContext.userId).catch((err) =>
