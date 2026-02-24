@@ -42,7 +42,7 @@ export function createIdleWorkerManager(deps: IdleWorkerDeps) {
           id: workerId,
           name: 'Mail IDLE Monitor',
           userId,
-          restartPolicy: { type: 'on-failure', maxRestarts: 0 },
+          restartPolicy: { type: 'always', maxRestarts: 0, initialDelayMs: 5000, maxDelayMs: 120000 },
         },
         async (ctx: BackgroundTaskContext) => {
           ctx.reportHealth('Starting IDLE connections...')

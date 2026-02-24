@@ -103,6 +103,11 @@ function activate(context: ExtensionContext): Disposable {
   const actionsApi = (context as ExtensionContext & { actions?: ActionsApi }).actions
   const settingsApi = (context as ExtensionContext & { settings?: SettingsApi }).settings
   const chat = (context as ExtensionContext & { chat?: ChatAPI }).chat
+  if (!chat) {
+    context.log.warn('Chat API not available — email notifications will be disabled')
+  } else {
+    context.log.info('Chat API available — email notifications enabled')
+  }
   const scheduler = (context as ExtensionContext & { scheduler?: SchedulerAPI }).scheduler
   const backgroundWorkers = (context as ExtensionContext & { backgroundWorkers?: BackgroundWorkersAPI }).backgroundWorkers
   const user = (context as ExtensionContext & { user?: UserAPI }).user

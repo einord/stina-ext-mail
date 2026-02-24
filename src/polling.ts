@@ -9,6 +9,11 @@ import { ProviderRegistry } from './providers/index.js'
 import type { FormatEmailOptions } from './imap/parser.js'
 import { formatEmailInstruction } from './imap/parser.js'
 
+
+// Track which accounts have been initialized this session to avoid
+// notifying about emails that arrived while the app was stopped.
+const sessionInitializedAccounts = new Set<string>()
+
 type ChatAPI = {
   appendInstruction: (message: {
     text: string
@@ -104,7 +109,10 @@ export async function handleNewEmail(
   userId: string,
   deps: PollingDeps
 ): Promise<void> {
-  if (!deps.chat) return
+  if (!deps.chat) {
+    deps.log.warn('Chat API not available, cannot send email notification', { accountId })
+    return
+  }
 
   try {
     const userRepo = new MailRepository(userStorage, userSecrets)
@@ -118,6 +126,16 @@ export async function handleNewEmail(
     // If no baseline exists, sync it first (no notifications)
     if (sinceUid === 0) {
       deps.log.info('No baseline for account, syncing...', { accountId })
+      await syncAccountBaseline(accountId, userStorage, userSecrets, deps)
+      sessionInitializedAccounts.add(accountId)
+      return
+    }
+
+    // Re-sync baseline on first poll this session to avoid notifying
+    // about emails that arrived while the app was stopped.
+    if (!sessionInitializedAccounts.has(accountId)) {
+      sessionInitializedAccounts.add(accountId)
+      deps.log.info('Re-syncing baseline for session restart', { accountId })
       await syncAccountBaseline(accountId, userStorage, userSecrets, deps)
       return
     }

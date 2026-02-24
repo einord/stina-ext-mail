@@ -98,6 +98,7 @@ export function createListRecentTool(providers: ProviderRegistry): Tool {
 
             // Add account info to each email
             for (const email of emails) {
+              await repository.processed.tryMarkProcessed(account.id, email.messageId, email.uid)
               allEmails.push({
                 id: email.id,
                 accountId: email.accountId,
@@ -208,6 +209,8 @@ export function createGetMailTool(providers: ProviderRegistry): Tool {
         if (!email) {
           return { success: false, error: 'Email not found' }
         }
+
+        await repository.processed.tryMarkProcessed(accountId, email.messageId, email.uid)
 
         return {
           success: true,
