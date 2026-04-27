@@ -47,6 +47,7 @@ type ActionsApi = {
 
 type SettingsApi = {
   get: <T = string>(key: string) => Promise<T | undefined>
+  set: (key: string, value: unknown) => Promise<void>
 }
 
 type ChatAPI = {
@@ -208,6 +209,8 @@ function activate(context: ExtensionContext): Disposable {
         emitEditChanged,
         schedulePollingForUser: pollingScheduler.schedulePollingForUser,
         ensureUserPolling,
+        settingsApi,
+        reloadProviderConfig: loadProviderConfig,
         log: context.log,
       })
     : []
