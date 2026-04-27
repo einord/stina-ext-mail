@@ -411,9 +411,10 @@
             "gap": 1,
             "children": [
               {
-                "component": "TextInput",
+                "component": "TextArea",
                 "label": "Global Instruction",
                 "placeholder": "Summarize all incoming emails briefly",
+                "rows": 5,
                 "value": "$settings.instruction",
                 "onChangeAction": {
                   "action": "updateSetting",
