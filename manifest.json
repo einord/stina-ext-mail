@@ -486,7 +486,8 @@
       {
         "id": "mail_accounts_list",
         "name": "List Mail Accounts",
-        "description": "List configured email accounts."
+        "description": "List configured email accounts.",
+        "requiresConfirmation": false
       },
       {
         "id": "mail_accounts_add",
@@ -506,22 +507,26 @@
       {
         "id": "mail_accounts_test",
         "name": "Test Mail Account",
-        "description": "Test connection to an email account."
+        "description": "Test connection to an email account.",
+        "requiresConfirmation": false
       },
       {
         "id": "mail_list_recent",
         "name": "List Recent Emails",
-        "description": "List recent emails from configured accounts."
+        "description": "List recent emails from configured accounts.",
+        "requiresConfirmation": false
       },
       {
         "id": "mail_get",
         "name": "Get Email",
-        "description": "Get a specific email by ID."
+        "description": "Get a specific email by ID.",
+        "requiresConfirmation": false
       },
       {
         "id": "mail_settings_get",
         "name": "Get Mail Settings",
-        "description": "Get the current mail settings including the global instruction."
+        "description": "Get the current mail settings including the global instruction.",
+        "requiresConfirmation": false
       },
       {
         "id": "mail_settings_update",
