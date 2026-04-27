@@ -41,33 +41,6 @@
         "users": {}
       }
     },
-    "settings": [
-      {
-        "id": "gmail_client_id",
-        "title": "Gmail Client ID",
-        "description": "OAuth2 Client ID from Google Cloud Console for Gmail access",
-        "type": "string"
-      },
-      {
-        "id": "gmail_client_secret",
-        "title": "Gmail Client Secret",
-        "description": "OAuth2 Client Secret from Google Cloud Console for Gmail access",
-        "type": "string"
-      },
-      {
-        "id": "outlook_client_id",
-        "title": "Outlook Client ID",
-        "description": "OAuth2 Client ID from Azure AD for Outlook access",
-        "type": "string"
-      },
-      {
-        "id": "outlook_tenant_id",
-        "title": "Outlook Tenant ID",
-        "description": "Azure AD Tenant ID (use 'common' for multi-tenant)",
-        "type": "string",
-        "default": "common"
-      }
-    ],
     "toolSettings": [
       {
         "id": "accounts",
@@ -438,9 +411,10 @@
             "gap": 1,
             "children": [
               {
-                "component": "TextInput",
+                "component": "TextArea",
                 "label": "Global Instruction",
                 "placeholder": "Summarize all incoming emails briefly",
+                "rows": 5,
                 "value": "$settings.instruction",
                 "onChangeAction": {
                   "action": "updateSetting",
@@ -451,6 +425,57 @@
                 "component": "Label",
                 "text": "This instruction will be appended to every incoming email notification sent to Stina.",
                 "style": { "font-size": "0.85em", "opacity": "0.7" }
+              },
+              {
+                "component": "Collapsible",
+                "title": "OAuth Configuration",
+                "description": "Credentials used to authenticate Gmail and Outlook accounts.",
+                "content": {
+                  "component": "VerticalStack",
+                  "gap": 1,
+                  "children": [
+                    {
+                      "component": "TextInput",
+                      "label": "Gmail Client ID",
+                      "placeholder": "OAuth2 Client ID from Google Cloud Console",
+                      "value": "$settings.gmail_client_id",
+                      "onChangeAction": {
+                        "action": "updateSetting",
+                        "params": { "key": "gmail_client_id", "value": "$value" }
+                      }
+                    },
+                    {
+                      "component": "PasswordInput",
+                      "label": "Gmail Client Secret",
+                      "placeholder": "OAuth2 Client Secret from Google Cloud Console",
+                      "value": "$settings.gmail_client_secret",
+                      "onChangeAction": {
+                        "action": "updateSetting",
+                        "params": { "key": "gmail_client_secret", "value": "$value" }
+                      }
+                    },
+                    {
+                      "component": "TextInput",
+                      "label": "Outlook Client ID",
+                      "placeholder": "OAuth2 Client ID from Azure AD",
+                      "value": "$settings.outlook_client_id",
+                      "onChangeAction": {
+                        "action": "updateSetting",
+                        "params": { "key": "outlook_client_id", "value": "$value" }
+                      }
+                    },
+                    {
+                      "component": "TextInput",
+                      "label": "Outlook Tenant ID",
+                      "placeholder": "common",
+                      "value": "$settings.outlook_tenant_id",
+                      "onChangeAction": {
+                        "action": "updateSetting",
+                        "params": { "key": "outlook_tenant_id", "value": "$value" }
+                      }
+                    }
+                  ]
+                }
               }
             ]
           }

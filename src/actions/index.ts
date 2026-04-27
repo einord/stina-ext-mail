@@ -32,9 +32,35 @@ export interface ActionDeps {
   emitEditChanged: () => void
   schedulePollingForUser: (userId: string) => Promise<void>
   ensureUserPolling?: (userId: string) => Promise<void>
+  /**
+   * Extension-scoped settings store (host-managed key/value).
+   * Used for OAuth credentials that are shared across users of this extension.
+   */
+  settingsApi?: {
+    get: <T = string>(key: string) => Promise<T | undefined>
+    set: (key: string, value: unknown) => Promise<void>
+  }
+  /** Reload provider configuration after OAuth credentials change. */
+  reloadProviderConfig?: () => Promise<void>
   log: {
     warn: (msg: string, data?: Record<string, unknown>) => void
   }
+}
+
+/**
+ * Keys that are stored in the extension-scoped settings store rather than the
+ * per-user mail settings repository.
+ */
+const OAUTH_SETTING_KEYS = [
+  'gmail_client_id',
+  'gmail_client_secret',
+  'outlook_client_id',
+  'outlook_tenant_id',
+] as const
+type OAuthSettingKey = (typeof OAUTH_SETTING_KEYS)[number]
+
+function isOAuthKey(key: string): key is OAuthSettingKey {
+  return (OAUTH_SETTING_KEYS as readonly string[]).includes(key)
 }
 
 function createUserRepository(execContext: ExecutionContext): MailRepository {
@@ -458,7 +484,7 @@ export function registerActions(actionsApi: ActionsApi, deps: ActionDeps): Array
       },
     }),
 
-    // Get settings
+    // Get settings (per-user mail settings + extension-scoped OAuth credentials)
     actionsApi.register({
       id: 'getSettings',
       async execute(_params, execContext) {
@@ -469,10 +495,15 @@ export function registerActions(actionsApi: ActionsApi, deps: ActionDeps): Array
         try {
           const userRepo = createUserRepository(execContext)
           const settings = await userRepo.settings.get()
-          return {
-            success: true,
-            data: { instruction: settings.instruction },
+          const data: Record<string, unknown> = { instruction: settings.instruction }
+
+          if (deps.settingsApi) {
+            for (const key of OAUTH_SETTING_KEYS) {
+              data[key] = (await deps.settingsApi.get<string>(key)) ?? ''
+            }
           }
+
+          return { success: true, data }
         } catch (error) {
           return {
             success: false,
@@ -494,10 +525,19 @@ export function registerActions(actionsApi: ActionsApi, deps: ActionDeps): Array
         const value = params.value as string
 
         try {
-          const userRepo = createUserRepository(execContext)
-
           if (key === 'instruction') {
+            const userRepo = createUserRepository(execContext)
             await userRepo.settings.update({ instruction: value })
+          } else if (isOAuthKey(key)) {
+            if (!deps.settingsApi) {
+              return { success: false, error: 'Settings API not available' }
+            }
+            await deps.settingsApi.set(key, value)
+            // Push the new credentials into the in-memory provider registry
+            // so subsequent OAuth flows pick them up without a restart.
+            await deps.reloadProviderConfig?.()
+          } else {
+            return { success: false, error: `Unknown setting key: ${key}` }
           }
 
           deps.emitSettingsChanged()
