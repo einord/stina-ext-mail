@@ -1,3 +1,5 @@
+> **Moved to Forgejo:** This project now lives at [forgejo.nyqvist.app/jonte/stina-ext-mail](https://forgejo.nyqvist.app/jonte/stina-ext-mail). The GitHub repository is archived and kept as a read-only pointer to the new home.
+
 # Mail Reader Extension for Stina
 
 Read incoming emails from iCloud, Gmail, Outlook, or generic IMAP accounts.
